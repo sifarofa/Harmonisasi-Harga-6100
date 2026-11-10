@@ -1,0 +1,6 @@
+{
+  "name": "SEHARGA - Sistem Evaluasi Statistik Harga BPS Provinsi Kalimantan Barat",
+  "description": "SEHARGA - Sistem Evaluasi Statistik Harga BPS Provinsi Kalimantan Barat: Rekapitulasi harmonisasi transmisi 4 tingkat harga, pemantauan inflasi IHK konsumen 5 kota, dan analisis Relatif Harga (RH) pedagang besar V-HPBS 14 kabupaten/kota.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
