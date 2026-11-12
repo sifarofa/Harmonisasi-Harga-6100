@@ -22,6 +22,99 @@ const MONTH_NAMES = [
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
 ];
 
+export const IHK_SAMPLE_REGION_CODES = ['6106', '6107', '6111', '6171', '6172'];
+export const IHK_SAMPLE_REGION_IDS = ['ketapang', 'sintang', 'kayong_utara', 'pontianak', 'singkawang'];
+
+/**
+ * Validates whether a region is an official BPS survey sample for a specific price level in Kalimantan Barat.
+ * - HD (Produsen Desa) & HKD (Konsumen Desa): Strictly 12 Kabupaten (Kota Pontianak & Singkawang are NOT rural samples).
+ * - HK (Konsumen / IHK): Strictly 5 Kab/Kota (Pontianak, Singkawang, Sintang, Ketapang, Kayong Utara).
+ * - HPB (Perdagangan Besar V-HPBS): All 14 Kab/Kota.
+ */
+export function isRegionSampleForLevel(
+  region: { id: string; code?: string; type?: string } | string,
+  level?: PriceLevel | 'all' | string
+): boolean {
+  if (!level || level === 'all') return true;
+  const regId = (typeof region === 'string' ? region : region.id).toLowerCase();
+  const regCode = typeof region === 'object' ? region.code : undefined;
+  const regType = typeof region === 'object' ? region.type : undefined;
+
+  // 1. HD (Harga Produsen Perdesaan) & 2. HKD (Harga Konsumen Perdesaan)
+  // Survei Harga Perdesaan BPS dilakukan HANYA di Kabupaten (12 Kabupaten di Kalbar).
+  // Kota Pontianak (6171) dan Kota Singkawang (6172) adalah Kota Administratif, BUKAN sampel perdesaan!
+  if (level === 'produsen_desa' || level === 'produsen' || level === 'konsumen_desa') {
+    if (
+      regId === 'pontianak' ||
+      regId === 'singkawang' ||
+      regCode === '6171' ||
+      regCode === '6172' ||
+      regType === 'Kota'
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  // 4. HK (Harga Konsumen / IHK)
+  // Survei Harga Konsumen resmi BPS di Kalimantan Barat HANYA mencakup 5 Kab/Kota sampel IHK:
+  // Kota Pontianak (6171), Kota Singkawang (6172), Kab. Sintang (6107), Kab. Ketapang (6106), Kab. Kayong Utara (6111).
+  if (level === 'konsumen') {
+    if (regCode && IHK_SAMPLE_REGION_CODES.includes(regCode)) return true;
+    if (IHK_SAMPLE_REGION_IDS.includes(regId)) return true;
+    return false;
+  }
+
+  // 3. HPB (Harga Perdagangan Besar / V-HPBS): mencakup pedagang besar di 14 Kab/Kota
+  return true;
+}
+
+export function getSampleDescriptionForLevel(level?: PriceLevel | 'all' | string): {
+  badge: string;
+  count: number;
+  description: string;
+  shortLabel: string;
+} {
+  if (level === 'produsen_desa' || level === 'produsen') {
+    return {
+      badge: '12 Kabupaten',
+      count: 12,
+      shortLabel: 'HD Perdesaan',
+      description: 'Sampel Harga Produsen Perdesaan (HD / HPG): 12 Kabupaten. Kota Pontianak & Kota Singkawang dikecualikan karena bukan sampel perdesaan.',
+    };
+  }
+  if (level === 'konsumen_desa') {
+    return {
+      badge: '12 Kabupaten',
+      count: 12,
+      shortLabel: 'HKD Perdesaan',
+      description: 'Sampel Harga Konsumen Perdesaan (HKD): 12 Kabupaten. Kota Pontianak & Kota Singkawang dikecualikan karena bukan sampel perdesaan.',
+    };
+  }
+  if (level === 'konsumen') {
+    return {
+      badge: '5 Kab/Kota IHK',
+      count: 5,
+      shortLabel: 'HK / IHK',
+      description: 'Sampel Harga Konsumen (HK / IHK): 5 Kab/Kota resmi BPS (Kota Pontianak, Kota Singkawang, Kab. Sintang, Kab. Ketapang, dan Kab. Kayong Utara).',
+    };
+  }
+  if (level === 'perdagangan_besar' || level === 'grosir') {
+    return {
+      badge: '14 Kab/Kota',
+      count: 14,
+      shortLabel: 'HPB Grosir',
+      description: 'Sampel Harga Perdagangan Besar (HPB / V-HPBS): Seluruh 14 Kabupaten/Kota di Kalimantan Barat.',
+    };
+  }
+  return {
+    badge: '14 Kab/Kota',
+    count: 14,
+    shortLabel: 'Konsolidasi 4 Level',
+    description: 'Cakupan komprehensif 14 Kabupaten/Kota se-Provinsi Kalimantan Barat.',
+  };
+}
+
 export function computeOverallStatus(
   regions: Record<string, any>,
   level?: PriceLevel
@@ -31,7 +124,12 @@ export function computeOverallStatus(
   let stabil = 0;
   let kosong = 0;
 
-  Object.values(regions || {}).forEach((r: any) => {
+  Object.entries(regions || {}).forEach(([regId, r]: [string, any]) => {
+    // Exclude non-sample regions for this level!
+    if (!isRegionSampleForLevel(regId, level)) {
+      return;
+    }
+
     let st: PriceStatus = 'KOSONG';
     if (level === 'produsen_desa' || level === 'produsen') {
       st = r?.produsenDesaStatus || r?.produsenStatus || 'KOSONG';
@@ -226,6 +324,11 @@ export function computeCommoditySeries(
     };
 
     regionEntries.forEach(([regId, regData]) => {
+      // Exclude regions that are not official survey samples for this price level
+      if (!isRegionSampleForLevel(regId, priceLevel)) {
+        return;
+      }
+
       const st = getRegionStatusForLevel(regData);
       regionalStatuses[regId] = st;
       if (st === 'NAIK') naikCount++;

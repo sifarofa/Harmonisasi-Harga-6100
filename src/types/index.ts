@@ -235,3 +235,15 @@ export interface VolatilityFilterOptions {
   selectedRegion: string; // 'all' or regionId
   sortBy?: 'fluktuasi_desc' | 'stabilitas_desc' | 'no_asc' | 'name_asc';
 }
+
+export type UserRole = 'admin_provinsi' | 'admin_kabkota';
+
+export interface AuthUser {
+  role: UserRole;
+  regionCode: string; // '6100' for Provinsi, '6101', '6171', etc.
+  regionId: string;   // 'all' for Provinsi, 'pontianak', 'sambas', etc.
+  regionName: string; // 'Provinsi Kalimantan Barat', 'Kota Pontianak', etc.
+  regionType: 'Provinsi' | 'Kabupaten' | 'Kota';
+  agencyName: string; // 'BPS Provinsi Kalimantan Barat' or 'BPS Kota Pontianak'
+  loginTime: string;
+}

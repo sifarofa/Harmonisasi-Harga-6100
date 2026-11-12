@@ -13,10 +13,11 @@ import { TopHeader } from './components/TopHeader';
 import { OwnerAuthModal } from './components/OwnerAuthModal';
 import { PriceLevelHarmonizationView } from './components/PriceLevelHarmonizationView';
 import { UnifiedFilterBar } from './components/UnifiedFilterBar';
+import { PortalLoginPage } from './components/PortalLoginPage';
 import { DEFAULT_REGIONS, generateInitialDatasets } from './data/initialData';
 import { generateInitialIhkDataset } from './data/initialIhkData';
 import { generateInitialHpbsDataset, generatePeriodsFromRecords } from './data/initialHpbsData';
-import { MonthlyHarmonizationDataset, PriceLevel, RegionInfo } from './types';
+import { MonthlyHarmonizationDataset, PriceLevel, RegionInfo, AuthUser } from './types';
 import { IhkCompleteDataset } from './types/ihk';
 import { HpbsDataset, HpbsMonthlyPeriod } from './types/hpbs';
 import { exportHarmonizationToExcel } from './utils/analysis';
@@ -52,6 +53,7 @@ const LOCAL_STORAGE_KEY = STORAGE_KEYS.HARMONIZATION;
 const IHK_STORAGE_KEY = STORAGE_KEYS.IHK;
 const HPBS_STORAGE_KEY = STORAGE_KEYS.HPBS;
 const OWNER_STORAGE_KEY = 'harmonisasi_is_owner';
+const PORTAL_AUTH_KEY = 'seharga_portal_auth_user';
 const OWNER_EMAIL = 'sifarofatunnisa24@gmail.com';
 
 // Ensures HPBS dataset always has complete routine monthly periods (Jan s/d Ags 2026) and no zero-price/empty rows
@@ -127,13 +129,42 @@ export default function App() {
     }
     return '2026-09';
   });
-  const [selectedRegionId, setSelectedRegionId] = useState<string>('all');
+  // Institutional Portal User State
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
+    try {
+      const stored = localStorage.getItem(PORTAL_AUTH_KEY) || sessionStorage.getItem(PORTAL_AUTH_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error('Failed to parse portal auth user:', e);
+    }
+    return null;
+  });
+
+  const [selectedRegionId, setSelectedRegionId] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem(PORTAL_AUTH_KEY) || sessionStorage.getItem(PORTAL_AUTH_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.role === 'admin_kabkota' && parsed.regionId) {
+          return parsed.regionId;
+        }
+      }
+    } catch {}
+    return 'all';
+  });
   const [selectedPriceLevel, setSelectedPriceLevel] = useState<PriceLevel | 'all'>('all');
   const [selectedCommodityId, setSelectedCommodityId] = useState<string>('c_7'); // Default to Cabai Rawit (No. 7)
 
-  // Owner Access Control State
+  // Owner Access Control State (Provinsi has full owner privileges)
   const [isOwner, setIsOwner] = useState<boolean>(() => {
     try {
+      const portalUser = localStorage.getItem(PORTAL_AUTH_KEY) || sessionStorage.getItem(PORTAL_AUTH_KEY);
+      if (portalUser) {
+        const parsed = JSON.parse(portalUser);
+        if (parsed && parsed.role === 'admin_provinsi') return true;
+      }
       return localStorage.getItem(OWNER_STORAGE_KEY) === 'true';
     } catch {
       return false;
@@ -677,6 +708,42 @@ export default function App() {
     }
   };
 
+  const handlePortalLogin = (user: AuthUser) => {
+    setAuthUser(user);
+    if (user.role === 'admin_provinsi') {
+      setSelectedRegionId('all');
+      setIsOwner(true);
+      try {
+        localStorage.setItem(OWNER_STORAGE_KEY, 'true');
+      } catch {}
+      showPublishToast('Selamat Datang, Admin Provinsi! Akses konsolidasi 14 Kabupaten/Kota aktif.', 'success');
+    } else {
+      setSelectedRegionId(user.regionId);
+      setIsOwner(false);
+      try {
+        localStorage.removeItem(OWNER_STORAGE_KEY);
+      } catch {}
+      showPublishToast(`Selamat Datang, ${user.agencyName || user.regionName}! Dashboard menyesuaikan wilayah Anda.`, 'success');
+    }
+  };
+
+  const handlePortalLogout = () => {
+    setAuthUser(null);
+    setIsOwner(false);
+    setSelectedRegionId('all');
+    try {
+      localStorage.removeItem(PORTAL_AUTH_KEY);
+      sessionStorage.removeItem(PORTAL_AUTH_KEY);
+      localStorage.removeItem(OWNER_STORAGE_KEY);
+    } catch {}
+    showPublishToast('Sesi telah diakhiri. Silakan masuk kembali melalui Portal Instansi.', 'info');
+  };
+
+  // Render Portal Login Landing Page if user has not authenticated
+  if (!authUser) {
+    return <PortalLoginPage onLogin={handlePortalLogin} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-['Plus_Jakarta_Sans',sans-serif]">
       {/* Fixed Navigation Sidebar */}
@@ -686,6 +753,8 @@ export default function App() {
         datasets={datasets}
         isOwner={isOwner}
         ownerEmail={OWNER_EMAIL}
+        authUser={authUser}
+        onLogout={handlePortalLogout}
         onOpenOwnerAuth={(actionName) => requireOwner(actionName || 'Akses Owner', () => {})}
         onLogoutOwner={handleLogoutOwner}
         isOpenMobile={isSidebarMobileOpen}
@@ -720,6 +789,8 @@ export default function App() {
           datasets={datasets}
           isOwner={isOwner}
           ownerEmail={OWNER_EMAIL}
+          authUser={authUser}
+          onLogout={handlePortalLogout}
           onOpenOwnerAuth={(actionName) => requireOwner(actionName || 'Akses Owner', () => {})}
           onLogoutOwner={handleLogoutOwner}
           onToggleSidebarMobile={() => setIsSidebarMobileOpen(!isSidebarMobileOpen)}
@@ -753,6 +824,7 @@ export default function App() {
             setSelectedRegionId={setSelectedRegionId}
             selectedPriceLevel={selectedPriceLevel}
             setSelectedPriceLevel={setSelectedPriceLevel}
+            authUser={authUser}
           />
         )}
 

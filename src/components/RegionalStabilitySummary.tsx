@@ -22,6 +22,10 @@ import {
   PriceStatus,
   RegionInfo,
 } from '../types';
+import {
+  isRegionSampleForLevel,
+  getSampleDescriptionForLevel,
+} from '../utils/analysis';
 
 interface RegionalStabilitySummaryProps {
   datasets: MonthlyHarmonizationDataset[];
@@ -101,9 +105,18 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
   initialPriceLevel = 'konsumen',
   onSelectCommodity,
 }) => {
-  // Directly follow central single-door filter for price level
-  const activeLevel: PriceLevel =
-    initialPriceLevel && initialPriceLevel !== 'all' ? (initialPriceLevel as PriceLevel) : 'konsumen';
+  // Sync with single-door filter but allow switching via level tabs
+  const [internalLevel, setInternalLevel] = useState<PriceLevel>(() => {
+    return initialPriceLevel && initialPriceLevel !== 'all' ? (initialPriceLevel as PriceLevel) : 'konsumen';
+  });
+
+  React.useEffect(() => {
+    if (initialPriceLevel && initialPriceLevel !== 'all') {
+      setInternalLevel(initialPriceLevel as PriceLevel);
+    }
+  }, [initialPriceLevel]);
+
+  const activeLevel: PriceLevel = internalLevel;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'Kabupaten' | 'Kota'>('all');
@@ -217,7 +230,13 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
     ];
 
     targetLevels.forEach((level) => {
-      const regionSummaries: RegionLevelStabilitySummary[] = regions.map((region) => {
+      // Filter regions strictly based on official BPS price survey sample design:
+      // - HD & HKD: 12 Kabupaten (Kota Pontianak & Singkawang are NOT rural samples)
+      // - HK: 5 Kab/Kota IHK (Pontianak, Singkawang, Sintang, Ketapang, Kayong Utara)
+      // - HPB: 14 Kab/Kota V-HPBS
+      const sampleRegions = regions.filter((reg) => isRegionSampleForLevel(reg, level));
+
+      const regionSummaries: RegionLevelStabilitySummary[] = sampleRegions.map((region) => {
         // Collect all commodities stability in this region at this level
         const commodityDetailsMap: Record<string, CommodityStabilityDetail> = {};
 
@@ -462,7 +481,7 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
                   Summary Stabilitas Kabupaten/Kota per Level Harga
                 </h3>
                 <span className="px-2 py-0.5 text-[11px] font-bold bg-emerald-100 text-emerald-800 rounded-md border border-emerald-200">
-                  14 Kab/Kota
+                  {getSampleDescriptionForLevel(activeLevel).badge}
                 </span>
                 <span className="px-2 py-0.5 text-[11px] font-semibold bg-slate-100 text-slate-700 rounded-md border border-slate-200">
                   {datasets.length} Periode Bulan
@@ -473,7 +492,7 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
                 </span>
               </div>
               <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                Daftar kabupaten/kota dan rincian komoditas dengan tingkat stabilitas harga tertinggi (&ge; 70% stabil) pada level <strong>{activeLevelMeta?.label}</strong> (mengikuti Pusat Filter Satu Pintu).
+                Daftar kabupaten/kota dan rincian komoditas dengan tingkat stabilitas harga tertinggi (&ge; 70% stabil) pada level <strong>{activeLevelMeta?.label}</strong>.
               </p>
             </div>
           </div>
@@ -505,6 +524,58 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
               <Table className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Tabel</span>
             </button>
+          </div>
+        </div>
+
+        {/* Level Quick Selector Pills */}
+        <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-slate-200/80">
+          <span className="text-xs font-bold text-slate-500 mr-1 flex items-center gap-1">
+            <Layers className="w-3.5 h-3.5 text-emerald-700" />
+            Pilih Level Harga:
+          </span>
+          {PRICE_LEVEL_OPTIONS.map((opt) => {
+            const isSelected = activeLevel === opt.id;
+            const desc = getSampleDescriptionForLevel(opt.id);
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setInternalLevel(opt.id)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                }`}
+              >
+                <span>{opt.label}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
+                    isSelected ? 'bg-emerald-800 text-emerald-100' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {desc.badge}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Sample Scope Banner */}
+        <div className="mt-3 bg-emerald-50/80 border border-emerald-200/90 rounded-xl p-3 flex items-start gap-2.5 text-xs text-emerald-950">
+          <div className="p-1 bg-emerald-100 text-emerald-800 rounded-md shrink-0 mt-0.5 font-bold text-[10px]">
+            {getSampleDescriptionForLevel(activeLevel).badge}
+          </div>
+          <div>
+            <p className="font-semibold">{getSampleDescriptionForLevel(activeLevel).description}</p>
+            {activeLevel === 'produsen_desa' || activeLevel === 'konsumen_desa' ? (
+              <p className="text-[11px] text-emerald-800/90 mt-0.5">
+                Catatan BPS: Kota Pontianak dan Kota Singkawang dikecualikan secara otomatis karena survei HD & HKD berfokus pada statistik perdesaan.
+              </p>
+            ) : activeLevel === 'konsumen' ? (
+              <p className="text-[11px] text-emerald-800/90 mt-0.5">
+                Catatan BPS: Survei Harga Konsumen resmi (IHK) di Kalbar hanya mencakup 5 Kab/Kota (Pontianak, Singkawang, Sintang, Ketapang, Kayong Utara).
+              </p>
+            ) : null}
           </div>
         </div>
       </div>
@@ -611,12 +682,12 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
                 )}
               </div>
 
-              {/* Type Filter */}
+              {/* Type Filter with Dynamic Sample Counts */}
               <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-200 text-xs font-medium">
                 <button
                   type="button"
                   onClick={() => setFilterType('all')}
-                  className={`px-2 py-1 rounded transition-colors ${
+                  className={`px-2 py-1 rounded transition-colors cursor-pointer ${
                     filterType === 'all'
                       ? 'bg-slate-900 text-white font-semibold'
                       : 'text-slate-600 hover:text-slate-900'
@@ -627,24 +698,33 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
                 <button
                   type="button"
                   onClick={() => setFilterType('Kabupaten')}
-                  className={`px-2 py-1 rounded transition-colors ${
+                  className={`px-2 py-1 rounded transition-colors cursor-pointer ${
                     filterType === 'Kabupaten'
                       ? 'bg-slate-900 text-white font-semibold'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Kabupaten (12)
+                  Kabupaten ({currentLevelSummaries.filter((r) => r.regionType === 'Kabupaten').length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setFilterType('Kota')}
+                  disabled={currentLevelSummaries.filter((r) => r.regionType === 'Kota').length === 0}
                   className={`px-2 py-1 rounded transition-colors ${
-                    filterType === 'Kota'
-                      ? 'bg-slate-900 text-white font-semibold'
-                      : 'text-slate-600 hover:text-slate-900'
+                    currentLevelSummaries.filter((r) => r.regionType === 'Kota').length === 0
+                      ? 'text-slate-400 cursor-not-allowed opacity-60'
+                      : filterType === 'Kota'
+                      ? 'bg-slate-900 text-white font-semibold cursor-pointer'
+                      : 'text-slate-600 hover:text-slate-900 cursor-pointer'
                   }`}
+                  title={
+                    currentLevelSummaries.filter((r) => r.regionType === 'Kota').length === 0
+                      ? 'Wilayah Kota bukan merupakan sampel survei perdesaan HD / HKD'
+                      : undefined
+                  }
                 >
-                  Kota (2)
+                  Kota ({currentLevelSummaries.filter((r) => r.regionType === 'Kota').length}
+                  {currentLevelSummaries.filter((r) => r.regionType === 'Kota').length === 0 ? ' - Non Sampel' : ''})
                 </button>
               </div>
 

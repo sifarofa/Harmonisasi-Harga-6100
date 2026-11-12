@@ -23,7 +23,7 @@ import {
   YAxis,
 } from 'recharts';
 import { MonthlyHarmonizationDataset, PriceLevel, PriceStatus, RegionInfo } from '../types';
-import { computeCommoditySeries, getStatusBadgeStyle } from '../utils/analysis';
+import { computeCommoditySeries, getStatusBadgeStyle, isRegionSampleForLevel } from '../utils/analysis';
 
 interface RegionalAnalysisViewProps {
   datasets: MonthlyHarmonizationDataset[];
@@ -48,7 +48,8 @@ export const RegionalAnalysisView: React.FC<RegionalAnalysisViewProps> = ({
 
   // Compute aggregate statistics per region across all months based on selected price level
   const regionalStats = useMemo(() => {
-    return regions.map((reg) => {
+    const sampleRegions = regions.filter((reg) => isRegionSampleForLevel(reg, selectedPriceLevel));
+    return sampleRegions.map((reg) => {
       let totalObservations = 0;
       let totalNaik = 0;
       let totalTurun = 0;

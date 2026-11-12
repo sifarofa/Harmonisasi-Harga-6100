@@ -60,6 +60,7 @@ export const PriceLevelHarmonizationView: React.FC<PriceLevelHarmonizationViewPr
 }) => {
   const latestDataset = allDatasets.length > 0 ? allDatasets[allDatasets.length - 1] : currentDataset;
   const isViewingLatest = currentDataset.id === latestDataset?.id;
+  const activeRegion = regions.find((r) => r.id === selectedRegionId);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedAlignment, setSelectedAlignment] = useState<string>('all');
@@ -352,9 +353,21 @@ export const PriceLevelHarmonizationView: React.FC<PriceLevelHarmonizationViewPr
                 ) : null}
               </div>
             </div>
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Harmonisasi Rantai Pasok 4 Tingkat Harga
-            </h2>
+            <div className="flex flex-wrap items-baseline gap-2.5">
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+                Harmonisasi Rantai Pasok 4 Tingkat Harga
+              </h2>
+              {activeRegion && selectedRegionId !== 'all' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
+                  <span>{activeRegion.name}</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  <span>Agregat Seluruh Wilayah (Kalimantan Barat)</span>
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-2 self-start md:self-center">

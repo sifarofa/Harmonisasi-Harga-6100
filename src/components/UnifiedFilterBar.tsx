@@ -8,7 +8,7 @@ import {
   RotateCcw,
   SlidersHorizontal,
 } from 'lucide-react';
-import { MonthlyHarmonizationDataset, PriceLevel, RegionInfo } from '../types';
+import { MonthlyHarmonizationDataset, PriceLevel, RegionInfo, AuthUser } from '../types';
 
 interface UnifiedFilterBarProps {
   datasets: MonthlyHarmonizationDataset[];
@@ -19,6 +19,7 @@ interface UnifiedFilterBarProps {
   setSelectedRegionId: (id: string) => void;
   selectedPriceLevel: PriceLevel | 'all';
   setSelectedPriceLevel: (level: PriceLevel | 'all') => void;
+  authUser?: AuthUser | null;
 }
 
 export const UnifiedFilterBar: React.FC<UnifiedFilterBarProps> = ({
@@ -30,6 +31,7 @@ export const UnifiedFilterBar: React.FC<UnifiedFilterBarProps> = ({
   setSelectedRegionId,
   selectedPriceLevel,
   setSelectedPriceLevel,
+  authUser,
 }) => {
   const defaultMonth = datasets.length > 0 ? datasets[datasets.length - 1] : null;
   const activeDataset = datasets.find((d) => d.id === selectedMonthId) || defaultMonth;
@@ -125,18 +127,35 @@ export const UnifiedFilterBar: React.FC<UnifiedFilterBarProps> = ({
               <MapPin className="w-3.5 h-3.5 text-blue-600" />
               <span>Wilayah</span>
             </label>
-            <button
-              id="btn-filter-kalbar-all"
-              type="button"
-              onClick={() => setSelectedRegionId('all')}
-              className={`text-[10px] font-bold px-2 py-0.5 rounded transition-all cursor-pointer ${
-                selectedRegionId === 'all'
-                  ? 'bg-blue-700 text-white shadow-2xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Semua Kalbar
-            </button>
+            <div className="flex items-center gap-1">
+              {authUser?.role === 'admin_kabkota' && (
+                <button
+                  type="button"
+                  id="btn-filter-my-region"
+                  onClick={() => setSelectedRegionId(authUser.regionId)}
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded transition-all cursor-pointer ${
+                    selectedRegionId === authUser.regionId
+                      ? 'bg-emerald-700 text-white shadow-2xs'
+                      : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                  }`}
+                  title={`Fokus ke wilayah akun Anda: ${authUser.regionName}`}
+                >
+                  📍 {authUser.regionName.replace('Kabupaten ', 'Kab. ')}
+                </button>
+              )}
+              <button
+                id="btn-filter-kalbar-all"
+                type="button"
+                onClick={() => setSelectedRegionId('all')}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded transition-all cursor-pointer ${
+                  selectedRegionId === 'all'
+                    ? 'bg-blue-700 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Semua Kalbar
+              </button>
+            </div>
           </div>
           <div className="relative">
             <select

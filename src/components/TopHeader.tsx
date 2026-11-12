@@ -16,8 +16,11 @@ import {
   Store,
   Database,
   ExternalLink,
+  Building2,
+  MapPin,
+  LogOut,
 } from 'lucide-react';
-import { MonthlyHarmonizationDataset } from '../types';
+import { MonthlyHarmonizationDataset, AuthUser } from '../types';
 import { TabType } from './Navbar';
 
 interface TopHeaderProps {
@@ -25,6 +28,8 @@ interface TopHeaderProps {
   datasets: MonthlyHarmonizationDataset[];
   isOwner: boolean;
   ownerEmail?: string;
+  authUser?: AuthUser | null;
+  onLogout?: () => void;
   onOpenOwnerAuth: (actionName?: string) => void;
   onLogoutOwner: () => void;
   onToggleSidebarMobile: () => void;
@@ -50,6 +55,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   datasets,
   isOwner,
   ownerEmail = 'sifarofatunnisa24@gmail.com',
+  authUser,
+  onLogout,
   onOpenOwnerAuth,
   onLogoutOwner,
   onToggleSidebarMobile,
@@ -195,6 +202,28 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               </div>
             </div>
           </div>
+
+          {authUser && (
+            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200/80 rounded-lg text-xs font-semibold shrink-0">
+              {authUser.role === 'admin_provinsi' ? (
+                <>
+                  <Building2 className="w-3.5 h-3.5 text-purple-600" />
+                  <span className="text-purple-950 font-bold">Admin Provinsi Kalbar</span>
+                  <span className="text-[10px] bg-purple-200 text-purple-900 px-1 py-0.2 rounded font-mono font-bold">
+                    6100
+                  </span>
+                </>
+              ) : (
+                <>
+                  <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="font-bold text-emerald-950">{authUser.regionName}</span>
+                  <span className="text-[10px] bg-emerald-200/70 text-emerald-900 px-1 py-0.2 rounded font-mono font-bold">
+                    {authUser.regionCode}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right Side: Tab Actions & Global Controls */}
@@ -235,6 +264,20 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             >
               <Database className="w-3.5 h-3.5 text-emerald-200" />
               <span>Kelola Data Harmonisasi</span>
+            </button>
+          )}
+
+          {/* User Account Switcher / Logout Button */}
+          {authUser && onLogout && (
+            <button
+              type="button"
+              id="topheader-btn-logout"
+              onClick={onLogout}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 transition-colors cursor-pointer shadow-2xs"
+              title={`Ganti Akun Wilayah (Saat ini: ${authUser.regionName})`}
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-600" />
+              <span className="text-[11px] hidden sm:inline">Ganti Akun</span>
             </button>
           )}
 

@@ -25,8 +25,10 @@ import {
   ExternalLink,
   Building2,
   Edit3,
+  MapPin,
+  LogOut,
 } from 'lucide-react';
-import { MonthlyHarmonizationDataset } from '../types';
+import { MonthlyHarmonizationDataset, AuthUser } from '../types';
 import { TabType } from './Navbar';
 
 interface SidebarProps {
@@ -37,6 +39,8 @@ interface SidebarProps {
   datasets: MonthlyHarmonizationDataset[];
   isOwner: boolean;
   ownerEmail?: string;
+  authUser?: AuthUser | null;
+  onLogout?: () => void;
   onOpenOwnerAuth: (actionName?: string) => void;
   onLogoutOwner: () => void;
   isOpenMobile: boolean;
@@ -67,6 +71,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   datasets,
   isOwner,
   ownerEmail = 'sifarofatunnisa24@gmail.com',
+  authUser,
+  onLogout,
   onOpenOwnerAuth,
   onLogoutOwner,
   isOpenMobile,
@@ -423,6 +429,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* 3. Bottom Footer & Controls */}
         <div className="p-3 border-t border-slate-200 bg-slate-50/70 space-y-2 shrink-0">
+          {/* Active Institutional Portal Account */}
+          {authUser && (
+            <div className="p-2.5 bg-slate-900 text-white rounded-xl shadow-xs border border-slate-800 text-xs">
+              <div className="flex items-center justify-between gap-1 mb-1">
+                <div className="flex items-center gap-1.5 font-bold text-emerald-400 truncate">
+                  {authUser.role === 'admin_provinsi' ? (
+                    <Building2 className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  ) : (
+                    <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  )}
+                  <span className="truncate">{authUser.regionName}</span>
+                </div>
+                <span className="text-[10px] bg-slate-800 text-emerald-300 font-mono font-bold px-1.5 py-0.5 rounded shrink-0">
+                  {authUser.regionCode}
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 truncate mb-2">
+                {authUser.role === 'admin_provinsi' ? 'Otoritas Seluruh 14 Kab/Kota' : authUser.agencyName}
+              </p>
+              {onLogout && (
+                <button
+                  type="button"
+                  id="sidebar-btn-logout"
+                  onClick={onLogout}
+                  className="w-full py-1.5 px-2 bg-slate-800 hover:bg-rose-950/70 text-slate-300 hover:text-rose-200 hover:border-rose-700/60 border border-slate-700 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  title="Ganti akun instansi atau keluar ke portal utama"
+                >
+                  <LogOut className="w-3 h-3 text-rose-400" />
+                  <span>Ganti Akun Wilayah</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Owner Status / Login */}
           {isOwner ? (
             <div className="flex items-center justify-between p-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs">
@@ -449,7 +489,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 Keluar
               </button>
             </div>
-          ) : (
+          ) : !authUser || authUser.role !== 'admin_provinsi' ? (
             <button
               type="button"
               onClick={() => onOpenOwnerAuth('Login Owner')}
@@ -459,7 +499,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span>Login Owner</span>
             </button>
-          )}
+          ) : null}
 
           {/* Bottom Tool Icons (Fullscreen, Sync) */}
           <div className="flex items-center justify-between pt-1">
