@@ -14,6 +14,7 @@ import { OwnerAuthModal } from './components/OwnerAuthModal';
 import { PriceLevelHarmonizationView } from './components/PriceLevelHarmonizationView';
 import { UnifiedFilterBar } from './components/UnifiedFilterBar';
 import { PortalLoginPage } from './components/PortalLoginPage';
+import { UserManagementModal } from './components/UserManagementModal';
 import { DEFAULT_REGIONS, generateInitialDatasets } from './data/initialData';
 import { generateInitialIhkDataset } from './data/initialIhkData';
 import { generateInitialHpbsDataset, generatePeriodsFromRecords } from './data/initialHpbsData';
@@ -48,6 +49,13 @@ import {
   savePublishedHpbsDataset,
   savePublishedIhkDataset,
 } from './utils/apiService';
+import {
+  supabase,
+  upsertWilayahDataset,
+  loadWilayahDatasetsFromSupabase,
+  WilayahDatasetRow,
+  formatKodeKabKota,
+} from './lib/supabaseClient';
 
 const LOCAL_STORAGE_KEY = STORAGE_KEYS.HARMONIZATION;
 const IHK_STORAGE_KEY = STORAGE_KEYS.IHK;
@@ -129,10 +137,16 @@ export default function App() {
     }
     return '2026-09';
   });
-  // Institutional Portal User State
+  // Institutional Portal User State (Reads from sessionStorage as Single Source of Auth Session)
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
     try {
-      const stored = localStorage.getItem(PORTAL_AUTH_KEY) || sessionStorage.getItem(PORTAL_AUTH_KEY);
+      const stored =
+        sessionStorage.getItem('seharga_auth_user') ||
+        sessionStorage.getItem(PORTAL_AUTH_KEY) ||
+        sessionStorage.getItem('seharga_portal_auth_user') ||
+        localStorage.getItem('seharga_auth_user') ||
+        localStorage.getItem(PORTAL_AUTH_KEY) ||
+        localStorage.getItem('seharga_portal_auth_user');
       if (stored) {
         return JSON.parse(stored);
       }
@@ -185,6 +199,9 @@ export default function App() {
 
   // Persistent Backup & Storage Health Modal
   const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
+
+  // User Management Modal (Admin Provinsi & Admin Kab/Kota)
+  const [isUserManagementOpen, setIsUserManagementOpen] = useState<boolean>(false);
 
   // IHK Consumer Dataset State (Terpisah dari dataset harmonisasi)
   const [ihkDataset, setIhkDataset] = useState<IhkCompleteDataset>(() => {
@@ -289,45 +306,44 @@ export default function App() {
     },
   });
 
-  // Manual or on-demand multi-device synchronization
+  // Manual or on-demand multi-device synchronization from Supabase Cloud
   const handleManualSync = async () => {
     try {
-      showPublishToast('🔄 Mengambil data terbaru dari server & menyinkronkan...', 'info');
-      const [harmRes, ihkRes, hpbsRes] = await Promise.all([
-        fetchPublishedDatasets(),
-        fetchPublishedIhkDataset(),
-        fetchPublishedHpbsDataset(),
-      ]);
+      showPublishToast('🔄 Mengambil data terbaru dari Supabase Cloud & menyinkronkan...', 'info');
+      const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+      const isProv = authUser?.role === 'admin_provinsi';
+
+      const supaData = await loadWilayahDatasetsFromSupabase(
+        userKode,
+        isProv ? 'provinsi' : 'kabkota'
+      );
 
       let syncUpdated = false;
 
       // Harmonisasi
-      if (harmRes && harmRes.datasets && harmRes.datasets.length > 0) {
-        const sorted = harmRes.datasets.sort((a, b) =>
+      if (supaData.harmonisasiPayload && Array.isArray(supaData.harmonisasiPayload) && supaData.harmonisasiPayload.length > 0) {
+        const sorted = supaData.harmonisasiPayload.sort((a: any, b: any) =>
           a.year !== b.year ? a.year - b.year : a.month - b.month
         );
-        const serverTime = harmRes.lastUpdated ? new Date(harmRes.lastUpdated).getTime() : Date.now();
         setDatasets(sorted);
-        await savePersistentItem(STORAGE_KEYS.HARMONIZATION, sorted, false, 1, serverTime);
+        await savePersistentItem(STORAGE_KEYS.HARMONIZATION, sorted, false);
         const latestMonthId = sorted[sorted.length - 1].id;
         setSelectedMonthId(latestMonthId);
         syncUpdated = true;
       }
 
       // IHK (Analisis RH Stabil IHK)
-      if (ihkRes && ihkRes.ihkDataset && ihkRes.ihkDataset.regions) {
-        const serverTime = ihkRes.lastUpdated ? new Date(ihkRes.lastUpdated).getTime() : Date.now();
-        setIhkDataset(ihkRes.ihkDataset);
-        await savePersistentItem(STORAGE_KEYS.IHK, ihkRes.ihkDataset, false, 1, serverTime);
+      if (supaData.ihkPayload && supaData.ihkPayload.regions && Object.keys(supaData.ihkPayload.regions).length > 0) {
+        setIhkDataset(supaData.ihkPayload);
+        await savePersistentItem(STORAGE_KEYS.IHK, supaData.ihkPayload, false);
         syncUpdated = true;
       }
 
-      // HPBS
-      if (hpbsRes && hpbsRes.dataset && Array.isArray(hpbsRes.dataset.records)) {
-        const normalized = normalizeHpbsDataset(hpbsRes.dataset);
-        const serverTime = hpbsRes.lastUpdated ? new Date(hpbsRes.lastUpdated).getTime() : Date.now();
+      // HPBS (V-HPBS Grosir)
+      if (supaData.hpbsPayload && Array.isArray(supaData.hpbsPayload.records) && supaData.hpbsPayload.records.length > 0) {
+        const normalized = normalizeHpbsDataset(supaData.hpbsPayload);
         setHpbsDataset(normalized);
-        persistHpbsDatasetLocally(normalized, false, serverTime);
+        persistHpbsDatasetLocally(normalized, false);
         syncUpdated = true;
       }
 
@@ -336,8 +352,8 @@ export default function App() {
       } else {
         showPublishToast(
           syncUpdated
-            ? '✓ Data terbaru dari server berhasil disinkronkan ke perangkat ini!'
-            : '✓ Data sudah sinkron dengan server.',
+            ? '✓ Data terbaru dari Supabase Cloud berhasil disinkronkan ke perangkat ini!'
+            : '✓ Data sudah sinkron dengan database Supabase Cloud.',
           'success'
         );
       }
@@ -347,12 +363,17 @@ export default function App() {
     }
   };
 
-  // Smart Sync & Persistence Engine: Initial Mount
+  // Supabase Centralized Cloud Persistence & Realtime Synchronization Engine
   useEffect(() => {
+    if (!authUser) return;
+
     let isMounted = true;
-    async function initAndSyncData() {
+    const userKode = formatKodeKabKota(authUser.regionCode || '61.00');
+    const isProv = authUser.role === 'admin_provinsi';
+
+    async function syncFromSupabase() {
       try {
-        // Step 1: Read locally stored data from IndexedDB
+        // Step 1: Read locally cached data first for instant zero-latency UI load
         const [localHarm, localIhk, localHpbs] = await Promise.all([
           loadPersistentItem<MonthlyHarmonizationDataset[]>(STORAGE_KEYS.HARMONIZATION),
           loadPersistentItem<IhkCompleteDataset>(STORAGE_KEYS.IHK),
@@ -361,7 +382,6 @@ export default function App() {
 
         if (!isMounted) return;
 
-        // Populate local state immediately if local storage has valid data so page loads instantly
         if (localHarm?.data && Array.isArray(localHarm.data) && localHarm.data.length > 0) {
           setDatasets(localHarm.data);
           setSelectedMonthId((curr) => {
@@ -376,175 +396,171 @@ export default function App() {
           setHpbsDataset(normalizeHpbsDataset(localHpbs.data));
         }
 
-        // Step 2: Query server datasets
-        const [harmRes, ihkRes, hpbsRes] = await Promise.all([
-          fetchPublishedDatasets(),
-          fetchPublishedIhkDataset(),
-          fetchPublishedHpbsDataset(),
-        ]);
+        // Step 2: Query Supabase centralized database as Single Source of Truth
+        // - If role === 'kabkota', loads for that kode_kabkota
+        // - If role === 'provinsi', loads all records from wilayah_datasets across all 14 Kab/Kota
+        const supaData = await loadWilayahDatasetsFromSupabase(
+          userKode,
+          isProv ? 'provinsi' : 'kabkota'
+        );
 
         if (!isMounted) return;
 
-        // Step 3: Server-Authoritative Multi-Device Synchronization
-
-        // --- HARMONISASI ---
-        const serverHarmTime = harmRes?.lastUpdated ? new Date(harmRes.lastUpdated).getTime() : 0;
-        const localHarmTime = localHarm?.lastModified || 0;
-
-        if (harmRes && Array.isArray(harmRes.datasets) && harmRes.datasets.length > 0) {
-          const sorted = harmRes.datasets.sort((a, b) =>
+        // --- 2a. Harmonisasi Dataset ---
+        if (supaData.harmonisasiPayload && Array.isArray(supaData.harmonisasiPayload) && supaData.harmonisasiPayload.length > 0) {
+          const sorted = supaData.harmonisasiPayload.sort((a: any, b: any) =>
             a.year !== b.year ? a.year - b.year : a.month - b.month
           );
-          const serverLatest = sorted[sorted.length - 1]?.id || '';
-          const localLatest = Array.isArray(localHarm?.data) && localHarm.data.length > 0
-            ? localHarm.data[localHarm.data.length - 1]?.id || ''
-            : '';
-          const localHasLatest = Array.isArray(localHarm?.data) && localHarm.data.some((d: any) => d.id === serverLatest);
-
-          // Server wins if:
-          // 1. Local has no data or is empty
-          // 2. Local does not have the server's latest month (e.g. 2026-09)
-          // 3. Server has more months than local
-          // 4. Server latest month is newer than local latest month
-          // 5. Local has no user edits
-          // 6. Server timestamp is newer
-          const serverWins =
-            !localHarm?.data ||
-            localHarm.data.length === 0 ||
-            !localHasLatest ||
-            sorted.length > localHarm.data.length ||
-            serverLatest > localLatest ||
-            !localHarm.hasUserEdits ||
-            serverHarmTime > localHarmTime;
-
-          if (serverWins) {
-            setDatasets(sorted);
-            await savePersistentItem(STORAGE_KEYS.HARMONIZATION, sorted, false, 1, serverHarmTime || Date.now());
-            setSelectedMonthId((curr) => {
-              const exists = sorted.some((d) => d.id === curr);
-              if (!exists || (serverLatest && curr < serverLatest)) {
-                return serverLatest;
-              }
-              return curr;
-            });
-          } else {
-            // Local edits are strictly newer than server
-            const localSorted = [...localHarm.data].sort((a: any, b: any) => (a.year !== b.year ? a.year - b.year : a.month - b.month));
-            setDatasets(localSorted);
-            if (localSorted.length >= sorted.length && localSorted.some((d: any) => d.id === serverLatest)) {
-              savePublishedDatasets(localSorted);
-            }
-          }
-        } else if (localHarm?.data && Array.isArray(localHarm.data) && localHarm.data.length > 0) {
-          const localSorted = [...localHarm.data].sort((a: any, b: any) => (a.year !== b.year ? a.year - b.year : a.month - b.month));
-          setDatasets(localSorted);
-          savePublishedDatasets(localSorted);
+          setDatasets(sorted);
+          await savePersistentItem(STORAGE_KEYS.HARMONIZATION, sorted, false);
+          setSelectedMonthId((curr) => {
+            const exists = sorted.some((d) => d.id === curr);
+            return exists ? curr : sorted[sorted.length - 1].id;
+          });
+        } else {
+          // If payload in Supabase is empty for this region, initialize from default local data and immediately upsert to Supabase
+          const initialHarm = (localHarm?.data && Array.isArray(localHarm.data) && localHarm.data.length > 0)
+            ? localHarm.data
+            : generateInitialDatasets().sort((a, b) => (a.year !== b.year ? a.year - b.year : a.month - b.month));
+          setDatasets(initialHarm);
+          await savePersistentItem(STORAGE_KEYS.HARMONIZATION, initialHarm, false);
+          await upsertWilayahDataset(userKode, 'harmonisasi', initialHarm, authUser.agencyName || userKode);
         }
 
-        // --- IHK (Analisis RH Stabil IHK) ---
-        const serverIhkTime = ihkRes?.lastUpdated ? new Date(ihkRes.lastUpdated).getTime() : 0;
-        const localIhkTime = localIhk?.lastModified || 0;
-
-        if (ihkRes && ihkRes.ihkDataset && ihkRes.ihkDataset.regions && Object.keys(ihkRes.ihkDataset.regions).length > 0) {
-          const serverWins =
-            !localIhk?.data ||
-            !localIhk.data.regions ||
-            !localIhk.hasUserEdits ||
-            serverIhkTime > localIhkTime;
-
-          if (serverWins) {
-            setIhkDataset(ihkRes.ihkDataset);
-            await savePersistentItem(STORAGE_KEYS.IHK, ihkRes.ihkDataset, false, 1, serverIhkTime || Date.now());
-          } else {
-            setIhkDataset(localIhk.data);
-            savePublishedIhkDataset(localIhk.data);
-          }
-        } else if (localIhk?.data && localIhk.data.regions && Object.keys(localIhk.data.regions).length > 0) {
-          setIhkDataset(localIhk.data);
-          savePublishedIhkDataset(localIhk.data);
+        // --- 2b. IHK Dataset ---
+        if (supaData.ihkPayload && supaData.ihkPayload.regions && Object.keys(supaData.ihkPayload.regions).length > 0) {
+          setIhkDataset(supaData.ihkPayload);
+          await savePersistentItem(STORAGE_KEYS.IHK, supaData.ihkPayload, false);
+        } else {
+          const initialIhk = (localIhk?.data && localIhk.data.regions && Object.keys(localIhk.data.regions).length > 0)
+            ? localIhk.data
+            : generateInitialIhkDataset();
+          setIhkDataset(initialIhk);
+          await savePersistentItem(STORAGE_KEYS.IHK, initialIhk, false);
+          await upsertWilayahDataset(userKode, 'ihk', initialIhk, authUser.agencyName || userKode);
         }
 
-        // --- HPBS (Analisis RH SHPB) ---
-        const serverHpbsTime = hpbsRes?.lastUpdated ? new Date(hpbsRes.lastUpdated).getTime() : 0;
-        const localHpbsTime = localHpbs?.lastModified || 0;
-
-        if (hpbsRes && hpbsRes.dataset && Array.isArray(hpbsRes.dataset.records) && hpbsRes.dataset.records.length > 0) {
-          const normalized = normalizeHpbsDataset(hpbsRes.dataset);
-          const localCount = localHpbs?.data?.records?.length || 0;
-          // Server wins if:
-          // 1. Server has full dataset (> 500 records) while local has fewer/dummy records
-          // 2. Local has no data or no user edits
-          // 3. Server timestamp is newer
-          const serverWins =
-            !localHpbs?.data ||
-            !Array.isArray(localHpbs.data.records) ||
-            normalized.records.length > localCount ||
-            !localHpbs.hasUserEdits ||
-            serverHpbsTime > localHpbsTime;
-
-          if (serverWins) {
-            setHpbsDataset(normalized);
-            persistHpbsDatasetLocally(normalized, false, serverHpbsTime || Date.now());
-          } else {
-            const locNorm = normalizeHpbsDataset(localHpbs.data);
-            setHpbsDataset(locNorm);
-            if (locNorm.records.length >= normalized.records.length) {
-              savePublishedHpbsDataset(locNorm);
-            }
-          }
-        } else if (localHpbs?.data && Array.isArray(localHpbs.data.records) && localHpbs.data.records.length > 500) {
-          const locNorm = normalizeHpbsDataset(localHpbs.data);
-          setHpbsDataset(locNorm);
-          savePublishedHpbsDataset(locNorm);
+        // --- 2c. HPBS Dataset ---
+        if (supaData.hpbsPayload && Array.isArray(supaData.hpbsPayload.records) && supaData.hpbsPayload.records.length > 0) {
+          const normalized = normalizeHpbsDataset(supaData.hpbsPayload);
+          setHpbsDataset(normalized);
+          persistHpbsDatasetLocally(normalized, false);
+        } else {
+          const initialHpbs = (localHpbs?.data && Array.isArray(localHpbs.data.records) && localHpbs.data.records.length > 0)
+            ? normalizeHpbsDataset(localHpbs.data)
+            : generateInitialHpbsDataset();
+          setHpbsDataset(initialHpbs);
+          persistHpbsDatasetLocally(initialHpbs, false);
+          await upsertWilayahDataset(userKode, 'hpbs', initialHpbs, authUser.agencyName || userKode);
         }
       } catch (err) {
-        console.warn('[App] Smart persistence sync error:', err);
+        console.warn('[App] Supabase sync error:', err);
       }
     }
 
-    initAndSyncData();
+    syncFromSupabase();
+
+    // Step 3: Attach Supabase Realtime (postgres_changes on table wilayah_datasets)
+    // Whenever an UPDATE or INSERT happens from ANY device, automatically update local React state!
+    const channelName = `realtime_wilayah_${userKode}_${Date.now()}`;
+    const realtimeChannel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'wilayah_datasets',
+        },
+        (payload) => {
+          if (!isMounted) return;
+          const newRow = payload.new as WilayahDatasetRow;
+          if (!newRow) return;
+
+          const isMatching = isProv || newRow.kode_kabkota === userKode;
+          if (!isMatching) return;
+
+          if (newRow.dataset_type === 'harmonisasi' && Array.isArray(newRow.payload)) {
+            const sorted = newRow.payload.sort((a: any, b: any) =>
+              a.year !== b.year ? a.year - b.year : a.month - b.month
+            );
+            setDatasets(sorted);
+            savePersistentItem(STORAGE_KEYS.HARMONIZATION, sorted, false);
+            showPublishToast(
+              `⚡ Data Harmonisasi (${newRow.kode_kabkota}) diperbarui real-time via Supabase!`,
+              'info'
+            );
+          } else if (newRow.dataset_type === 'ihk' && newRow.payload) {
+            setIhkDataset(newRow.payload);
+            savePersistentItem(STORAGE_KEYS.IHK, newRow.payload, false);
+            showPublishToast(
+              `⚡ Data RH Stabil IHK (${newRow.kode_kabkota}) diperbarui real-time via Supabase!`,
+              'info'
+            );
+          } else if (newRow.dataset_type === 'hpbs' && newRow.payload) {
+            const normalized = normalizeHpbsDataset(newRow.payload);
+            setHpbsDataset(normalized);
+            persistHpbsDatasetLocally(normalized, false);
+            showPublishToast(
+              `⚡ Data Relatif Harga (V-HPBS) (${newRow.kode_kabkota}) diperbarui real-time via Supabase!`,
+              'info'
+            );
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       isMounted = false;
+      supabase.removeChannel(realtimeChannel);
     };
-  }, []);
+  }, [authUser]);
 
+  // Handlers with automatic Supabase UPSERT & multi-device sync
   const handleUpdateHpbsDataset = (newDataset: HpbsDataset) => {
     setHpbsDataset(newDataset);
     persistHpbsDatasetLocally(newDataset, true);
-    savePublishedHpbsDataset(newDataset).then((ok) => {
+    const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+    upsertWilayahDataset(userKode, 'hpbs', newDataset, authUser?.agencyName || userKode).then((ok) => {
       if (ok) {
-        showPublishToast('✓ Data Relatif Harga (V-HPBS) berhasil disimpan permanen!');
+        showPublishToast('✓ Data Relatif Harga (V-HPBS) berhasil disimpan ke Supabase!');
       }
     });
+    savePublishedHpbsDataset(newDataset, userKode);
   };
 
   const handleResetHpbsDataset = () => {
     const initial = generateInitialHpbsDataset();
     setHpbsDataset(initial);
     persistHpbsDatasetLocally(initial, false);
-    resetServerHpbsDataset().then(() => {
-      showPublishToast('✓ Data V-HPBS telah direset ke data awal resmi.', 'info');
+    const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+    upsertWilayahDataset(userKode, 'hpbs', initial, authUser?.agencyName || userKode).then(() => {
+      showPublishToast('✓ Data V-HPBS telah direset ke data awal resmi di Supabase.', 'info');
     });
+    resetServerHpbsDataset(userKode);
   };
 
   const handleSaveIhkDataset = (newDataset: IhkCompleteDataset) => {
     setIhkDataset(newDataset);
     savePersistentItem(STORAGE_KEYS.IHK, newDataset, true);
-    // Automatically publish to server so published link & other users immediately see updated data
-    savePublishedIhkDataset(newDataset).then((ok) => {
+    const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+    upsertWilayahDataset(userKode, 'ihk', newDataset, authUser?.agencyName || userKode).then((ok) => {
       if (ok) {
-        showPublishToast('✓ File IHK berhasil diunggah & disimpan permanen!');
+        showPublishToast('✓ File IHK berhasil diunggah & disimpan ke Supabase!');
       }
     });
+    savePublishedIhkDataset(newDataset, userKode);
   };
 
   const handleResetIhkDataset = () => {
     const initial = generateInitialIhkDataset();
     setIhkDataset(initial);
     savePersistentItem(STORAGE_KEYS.IHK, initial, false);
-    resetServerIhkDataset().then(() => {
-      showPublishToast('✓ Data IHK telah direset ke data awal resmi.', 'info');
+    const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+    upsertWilayahDataset(userKode, 'ihk', initial, authUser?.agencyName || userKode).then(() => {
+      showPublishToast('✓ Data IHK telah direset ke data awal resmi di Supabase.', 'info');
     });
+    resetServerIhkDataset(userKode);
   };
 
   const handleOpenIhkFileManager = (tab: 'import' | 'template' | 'export' | 'manage' = 'import') => {
@@ -556,16 +572,18 @@ export default function App() {
     datasets.find((d) => d.id === selectedMonthId) ||
     (datasets.length > 0 ? datasets[datasets.length - 1] : null);
 
-  // Handlers with automatic persistent storage & server publishing
+  // Handlers with automatic persistent storage & Supabase UPSERT
   const handleUpdateDataset = (updated: MonthlyHarmonizationDataset) => {
     const next = datasets.map((d) => (d.id === updated.id ? updated : d));
     setDatasets(next);
     savePersistentItem(STORAGE_KEYS.HARMONIZATION, next, true);
-    savePublishedDatasets(next).then((ok) => {
+    const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+    upsertWilayahDataset(userKode, 'harmonisasi', next, authUser?.agencyName || userKode).then((ok) => {
       if (ok) {
-        showPublishToast('✓ Perubahan status komoditas berhasil disimpan & dipublikasikan ke semua device!');
+        showPublishToast('✓ Perubahan status komoditas berhasil disimpan ke Supabase & tersinkron real-time!');
       }
     });
+    savePublishedDatasets(next, userKode);
   };
 
   const handleAddMonth = (newDataset: MonthlyHarmonizationDataset) => {
@@ -579,11 +597,13 @@ export default function App() {
     setSelectedMonthId(newDataset.id);
     setActiveTab('grid');
 
-    savePublishedDatasets(combined).then((ok) => {
+    const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+    upsertWilayahDataset(userKode, 'harmonisasi', combined, authUser?.agencyName || userKode).then((ok) => {
       if (ok) {
-        showPublishToast(`✓ Periode ${newDataset.monthLabel} berhasil ditambahkan & disimpan permanen!`);
+        showPublishToast(`✓ Periode ${newDataset.monthLabel} berhasil ditambahkan & disimpan ke Supabase!`);
       }
     });
+    savePublishedDatasets(combined, userKode);
   };
 
   const handleImportDatasets = (incoming: MonthlyHarmonizationDataset | MonthlyHarmonizationDataset[], replaceAll: boolean = false) => {
@@ -605,19 +625,18 @@ export default function App() {
 
     setDatasets(combined);
     savePersistentItem(STORAGE_KEYS.HARMONIZATION, combined, true);
-
-    // Select the first imported dataset or newly added month
     setSelectedMonthId(list[0].id);
     setActiveTab('grid');
 
-    // Automatically publish to server so everyone viewing the published app gets the updated data
-    savePublishedDatasets(combined).then((ok) => {
+    const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+    upsertWilayahDataset(userKode, 'harmonisasi', combined, authUser?.agencyName || userKode).then((ok) => {
       if (ok) {
         showPublishToast(
-          `✓ Data ${list.length} periode berhasil diunggah & disimpan secara permanen!`
+          `✓ Data ${list.length} periode berhasil diunggah & disimpan secara permanen ke Supabase!`
         );
       }
     });
+    savePublishedDatasets(combined, userKode);
   };
 
   const handleDeleteMonth = (monthId: string) => {
@@ -627,9 +646,11 @@ export default function App() {
     }
     setDatasets(remaining);
     savePersistentItem(STORAGE_KEYS.HARMONIZATION, remaining, true);
-    savePublishedDatasets(remaining).then(() => {
-      showPublishToast('✓ Perubahan penghapusan data telah diperbarui.');
+    const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+    upsertWilayahDataset(userKode, 'harmonisasi', remaining, authUser?.agencyName || userKode).then(() => {
+      showPublishToast('✓ Perubahan penghapusan data telah diperbarui di Supabase.');
     });
+    savePublishedDatasets(remaining, userKode);
   };
 
   const handleDeleteMonths = (monthIds: string[]) => {
@@ -640,16 +661,20 @@ export default function App() {
     }
     setDatasets(remaining);
     savePersistentItem(STORAGE_KEYS.HARMONIZATION, remaining, true);
-    savePublishedDatasets(remaining).then(() => {
-      showPublishToast('✓ Perubahan penghapusan data telah diperbarui.');
+    const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+    upsertWilayahDataset(userKode, 'harmonisasi', remaining, authUser?.agencyName || userKode).then(() => {
+      showPublishToast('✓ Perubahan penghapusan data telah diperbarui di Supabase.');
     });
+    savePublishedDatasets(remaining, userKode);
   };
 
   const handleClearAllDatasets = () => {
     setDatasets([]);
     setSelectedMonthId('');
     savePersistentItem(STORAGE_KEYS.HARMONIZATION, [], true);
-    savePublishedDatasets([]);
+    const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+    upsertWilayahDataset(userKode, 'harmonisasi', [], authUser?.agencyName || userKode);
+    savePublishedDatasets([], userKode);
   };
 
   const handleResetData = () => {
@@ -658,8 +683,10 @@ export default function App() {
       setDatasets(initial);
       setSelectedMonthId(initial[0].id);
       savePersistentItem(STORAGE_KEYS.HARMONIZATION, initial, false);
-      resetServerDatasets().then(() => {
-        showPublishToast('✓ Data harmonisasi telah direset ke rekap awal resmi.', 'info');
+      const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
+      upsertWilayahDataset(userKode, 'harmonisasi', initial, authUser?.agencyName || userKode);
+      resetServerDatasets(userKode).then(() => {
+        showPublishToast('✓ Data harmonisasi telah direset ke rekap awal di Supabase.', 'info');
       });
     }
   };
@@ -732,8 +759,12 @@ export default function App() {
     setIsOwner(false);
     setSelectedRegionId('all');
     try {
-      localStorage.removeItem(PORTAL_AUTH_KEY);
+      sessionStorage.removeItem('seharga_auth_user');
+      sessionStorage.removeItem('seharga_portal_auth_user');
       sessionStorage.removeItem(PORTAL_AUTH_KEY);
+      localStorage.removeItem('seharga_auth_user');
+      localStorage.removeItem('seharga_portal_auth_user');
+      localStorage.removeItem(PORTAL_AUTH_KEY);
       localStorage.removeItem(OWNER_STORAGE_KEY);
     } catch {}
     showPublishToast('Sesi telah diakhiri. Silakan masuk kembali melalui Portal Instansi.', 'info');
@@ -755,6 +786,7 @@ export default function App() {
         ownerEmail={OWNER_EMAIL}
         authUser={authUser}
         onLogout={handlePortalLogout}
+        onOpenUserManagement={() => setIsUserManagementOpen(true)}
         onOpenOwnerAuth={(actionName) => requireOwner(actionName || 'Akses Owner', () => {})}
         onLogoutOwner={handleLogoutOwner}
         isOpenMobile={isSidebarMobileOpen}
@@ -791,6 +823,7 @@ export default function App() {
           ownerEmail={OWNER_EMAIL}
           authUser={authUser}
           onLogout={handlePortalLogout}
+          onOpenUserManagement={() => setIsUserManagementOpen(true)}
           onOpenOwnerAuth={(actionName) => requireOwner(actionName || 'Akses Owner', () => {})}
           onLogoutOwner={handleLogoutOwner}
           onToggleSidebarMobile={() => setIsSidebarMobileOpen(!isSidebarMobileOpen)}
@@ -1072,6 +1105,14 @@ export default function App() {
         }}
         onSuccess={handleOwnerAuthSuccess}
         targetActionName={pendingActionName}
+      />
+
+      {/* User Management Modal for Admin Provinsi & Admin Kab/Kota */}
+      <UserManagementModal
+        isOpen={isUserManagementOpen}
+        onClose={() => setIsUserManagementOpen(false)}
+        currentUser={authUser}
+        onShowToast={showPublishToast}
       />
 
       {/* Floating Server Publication Notification Toast */}

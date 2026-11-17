@@ -622,7 +622,7 @@ app.post('/api/reset-hpbs', (_req, res) => {
 async function startServer() {
   if (!isProduction) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     // Force no-cache on HTML documents so mobile devices always get latest scripts

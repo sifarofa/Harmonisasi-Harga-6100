@@ -27,6 +27,7 @@ import {
   Edit3,
   MapPin,
   LogOut,
+  KeyRound,
 } from 'lucide-react';
 import { MonthlyHarmonizationDataset, AuthUser } from '../types';
 import { TabType } from './Navbar';
@@ -41,6 +42,7 @@ interface SidebarProps {
   ownerEmail?: string;
   authUser?: AuthUser | null;
   onLogout?: () => void;
+  onOpenUserManagement?: () => void;
   onOpenOwnerAuth: (actionName?: string) => void;
   onLogoutOwner: () => void;
   isOpenMobile: boolean;
@@ -73,6 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ownerEmail = 'sifarofatunnisa24@gmail.com',
   authUser,
   onLogout,
+  onOpenUserManagement,
   onOpenOwnerAuth,
   onLogoutOwner,
   isOpenMobile,
@@ -448,18 +451,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <p className="text-[10px] text-slate-400 truncate mb-2">
                 {authUser.role === 'admin_provinsi' ? 'Otoritas Seluruh 14 Kab/Kota' : authUser.agencyName}
               </p>
-              {onLogout && (
-                <button
-                  type="button"
-                  id="sidebar-btn-logout"
-                  onClick={onLogout}
-                  className="w-full py-1.5 px-2 bg-slate-800 hover:bg-rose-950/70 text-slate-300 hover:text-rose-200 hover:border-rose-700/60 border border-slate-700 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                  title="Ganti akun instansi atau keluar ke portal utama"
-                >
-                  <LogOut className="w-3 h-3 text-rose-400" />
-                  <span>Ganti Akun Wilayah</span>
-                </button>
-              )}
+              <div className="space-y-1.5">
+                {onOpenUserManagement && (
+                  <button
+                    type="button"
+                    id="sidebar-btn-users"
+                    onClick={onOpenUserManagement}
+                    className="w-full py-1.5 px-2 bg-slate-800 hover:bg-emerald-900/60 text-emerald-300 hover:text-emerald-100 border border-slate-700 hover:border-emerald-700/60 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    title={authUser.role === 'admin_provinsi' ? 'Kelola Pengguna Wilayah di Supabase' : 'Ubah Kata Sandi / Token Wilayah'}
+                  >
+                    <KeyRound className="w-3 h-3 text-emerald-400" />
+                    <span>{authUser.role === 'admin_provinsi' ? 'Kelola User Wilayah' : 'Ganti Kata Sandi'}</span>
+                  </button>
+                )}
+                {onLogout && (
+                  <button
+                    type="button"
+                    id="sidebar-btn-logout"
+                    onClick={onLogout}
+                    className="w-full py-1.5 px-2 bg-slate-800 hover:bg-rose-950/70 text-slate-300 hover:text-rose-200 hover:border-rose-700/60 border border-slate-700 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    title="Ganti akun instansi atau keluar ke portal utama"
+                  >
+                    <LogOut className="w-3 h-3 text-rose-400" />
+                    <span>Ganti Akun Wilayah</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 

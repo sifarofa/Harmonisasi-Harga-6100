@@ -4,6 +4,13 @@
  * and maintains edit flags so newer local user data is never overwritten by stale server defaults.
  */
 
+import {
+  upsertWilayahDataset,
+  getCurrentUserRegionKode,
+  supabase,
+  DatasetType,
+} from '../lib/supabaseClient';
+
 const DB_NAME = 'HarmonisasiKalbar_AppDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'datasets_store';
@@ -14,6 +21,13 @@ export const STORAGE_KEYS = {
   HPBS: 'kalbar_hpbs_dataset_v3',
   META: 'kalbar_app_metadata',
 } as const;
+
+export function mapStorageKeyToDatasetType(key: string): DatasetType | null {
+  if (key === STORAGE_KEYS.HARMONIZATION) return 'harmonisasi';
+  if (key === STORAGE_KEYS.IHK) return 'ihk';
+  if (key === STORAGE_KEYS.HPBS) return 'hpbs';
+  return null;
+}
 
 export const LEGACY_KEYS: Record<string, string> = {
   [STORAGE_KEYS.HARMONIZATION]: 'harmonisasi_commodity_datasets_v1',
@@ -113,6 +127,15 @@ export async function savePersistentItem<T>(
     } catch (_) {}
   }
 
+  // Centralized Cloud Backend: Automatically upsert to Supabase table `wilayah_datasets`
+  const datasetType = mapStorageKeyToDatasetType(key);
+  if (datasetType && hasUserEdits) {
+    const regionKode = getCurrentUserRegionKode();
+    upsertWilayahDataset(regionKode, datasetType, data).catch((supaErr) => {
+      console.warn(`[PersistentStorage] Supabase upsert failed for ${regionKode}/${datasetType}:`, supaErr);
+    });
+  }
+
   return idbSuccess;
 }
 
@@ -162,6 +185,32 @@ export async function loadPersistentItem<T>(key: string): Promise<StoredItem<T> 
     }
   } catch (e) {
     console.warn('[PersistentStorage] LocalStorage read failed:', e);
+  }
+
+  // 3. Fallback to Supabase cloud if local cache is empty
+  try {
+    const datasetType = mapStorageKeyToDatasetType(key);
+    if (datasetType) {
+      const regionKode = getCurrentUserRegionKode();
+      const { data, error } = await supabase
+        .from('wilayah_datasets')
+        .select('*')
+        .eq('kode_kabkota', regionKode)
+        .eq('dataset_type', datasetType)
+        .maybeSingle();
+
+      if (!error && data && data.payload) {
+        return {
+          key,
+          data: data.payload as T,
+          lastModified: data.updated_at ? new Date(data.updated_at).getTime() : Date.now(),
+          hasUserEdits: true,
+          version: 1,
+        };
+      }
+    }
+  } catch (supaErr) {
+    console.debug('[PersistentStorage] Supabase load fallback failed:', supaErr);
   }
 
   return null;

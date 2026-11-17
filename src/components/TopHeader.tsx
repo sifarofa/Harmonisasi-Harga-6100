@@ -19,6 +19,8 @@ import {
   Building2,
   MapPin,
   LogOut,
+  Users,
+  KeyRound,
 } from 'lucide-react';
 import { MonthlyHarmonizationDataset, AuthUser } from '../types';
 import { TabType } from './Navbar';
@@ -48,6 +50,7 @@ interface TopHeaderProps {
   hasNewVersion?: boolean;
   onForceRefresh?: () => void;
   onOpenBackupModal?: () => void;
+  onOpenUserManagement?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -57,6 +60,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   ownerEmail = 'sifarofatunnisa24@gmail.com',
   authUser,
   onLogout,
+  onOpenUserManagement,
   onOpenOwnerAuth,
   onLogoutOwner,
   onToggleSidebarMobile,
@@ -210,7 +214,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                   <Building2 className="w-3.5 h-3.5 text-purple-600" />
                   <span className="text-purple-950 font-bold">Admin Provinsi Kalbar</span>
                   <span className="text-[10px] bg-purple-200 text-purple-900 px-1 py-0.2 rounded font-mono font-bold">
-                    6100
+                    {authUser.regionCode || '61.00'}
                   </span>
                 </>
               ) : (
@@ -224,6 +228,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               )}
             </div>
           )}
+
+          <div className="hidden xl:flex items-center gap-1.5 px-2 py-1 bg-slate-100 text-slate-700 rounded-lg text-[11px] font-medium border border-slate-200 shrink-0">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="font-semibold text-slate-800">Supabase Cloud</span>
+            <span className="text-slate-400">•</span>
+            <span className="text-emerald-700 font-bold">Realtime</span>
+          </div>
         </div>
 
         {/* Right Side: Tab Actions & Global Controls */}
@@ -264,6 +275,26 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             >
               <Database className="w-3.5 h-3.5 text-emerald-200" />
               <span>Kelola Data Harmonisasi</span>
+            </button>
+          )}
+
+          {/* User Management Button for Admin Provinsi & Admin Kab/Kota */}
+          {authUser && onOpenUserManagement && (
+            <button
+              type="button"
+              id="topheader-btn-users"
+              onClick={onOpenUserManagement}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-emerald-50 text-slate-800 hover:text-emerald-800 transition-colors cursor-pointer shadow-2xs"
+              title={
+                authUser.role === 'admin_provinsi'
+                  ? 'Manajemen Pengguna Wilayah (14 Kab/Kota) di Supabase'
+                  : 'Kelola Kata Sandi & Keamanan Akun Wilayah'
+              }
+            >
+              <KeyRound className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="text-[11px] hidden sm:inline">
+                {authUser.role === 'admin_provinsi' ? 'Kelola User' : 'Ganti Sandi'}
+              </span>
             </button>
           )}
 

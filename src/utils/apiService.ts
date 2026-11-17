@@ -7,11 +7,17 @@ import {
   migrateIhkDataset,
   migrateHpbsDataset,
 } from './schemaMigration';
+import {
+  supabase,
+  upsertWilayahDataset,
+  getCurrentUserRegionKode,
+  formatKodeKabKota,
+} from '../lib/supabaseClient';
 
 /**
- * Service to interact with the backend server API for persisting
- * and publishing harmonization, IHK, and HPBS datasets across sessions and devices.
- * Integrates schema validation & migration for 100% backward compatibility and zero data loss.
+ * Service to interact with Supabase centralized cloud database (Single Source of Truth)
+ * and the backend server API for persisting and synchronizing harmonization, IHK, and HPBS
+ * datasets across sessions, roles, and devices in real-time.
  */
 
 const ANTI_CACHE_HEADERS: HeadersInit = {
@@ -30,11 +36,52 @@ function getAlternativeApiUrl(path: string): string | null {
   return null;
 }
 
-// Fetch published harmonization datasets
-export async function fetchPublishedDatasets(): Promise<{
+// Fetch published harmonization datasets (Supabase with server fallback)
+export async function fetchPublishedDatasets(
+  kodeKabKota?: string
+): Promise<{
   datasets: MonthlyHarmonizationDataset[];
   lastUpdated?: string;
 } | null> {
+  const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
+
+  // 1. Supabase Cloud First (Single Source of Truth)
+  try {
+    const { data, error } = await supabase
+      .from('wilayah_datasets')
+      .select('*')
+      .eq('dataset_type', 'harmonisasi')
+      .eq('kode_kabkota', targetKode)
+      .maybeSingle();
+
+    if (!error && data && Array.isArray(data.payload) && data.payload.length > 0) {
+      return {
+        datasets: migrateHarmonizationDatasets(data.payload),
+        lastUpdated: data.updated_at,
+      };
+    }
+
+    // If no specific dataset found for this kab/kota and not 61.00, check master 61.00
+    if (targetKode !== '61.00') {
+      const { data: masterData } = await supabase
+        .from('wilayah_datasets')
+        .select('*')
+        .eq('dataset_type', 'harmonisasi')
+        .eq('kode_kabkota', '61.00')
+        .maybeSingle();
+
+      if (masterData && Array.isArray(masterData.payload) && masterData.payload.length > 0) {
+        return {
+          datasets: migrateHarmonizationDatasets(masterData.payload),
+          lastUpdated: masterData.updated_at,
+        };
+      }
+    }
+  } catch (supaErr) {
+    console.debug('[Supabase API] Failed to fetch harmonization:', supaErr);
+  }
+
+  // 2. Server API Fallback
   let primaryResult: { datasets: MonthlyHarmonizationDataset[]; lastUpdated?: string } | null = null;
   try {
     const res = await fetch(`/api/datasets?_t=${Date.now()}`, {
@@ -54,7 +101,7 @@ export async function fetchPublishedDatasets(): Promise<{
     console.warn('[API] Could not reach /api/datasets:', err);
   }
 
-  // Cross-environment fallback: if running on shared preview (ais-pre-), also check live dev instance
+  // Cross-environment fallback
   const altUrl = getAlternativeApiUrl('/api/datasets');
   if (altUrl) {
     try {
@@ -72,16 +119,6 @@ export async function fetchPublishedDatasets(): Promise<{
               lastUpdated: altData.lastUpdated,
             };
           }
-          if (
-            primaryResult.lastUpdated &&
-            altData.lastUpdated &&
-            new Date(altData.lastUpdated) > new Date(primaryResult.lastUpdated)
-          ) {
-            return {
-              datasets: migratedAlt,
-              lastUpdated: altData.lastUpdated,
-            };
-          }
         }
       }
     } catch (_) {}
@@ -90,12 +127,24 @@ export async function fetchPublishedDatasets(): Promise<{
   return primaryResult;
 }
 
-// Save/Publish harmonization datasets to server
+// Save/Publish harmonization datasets to Supabase and server
 export async function savePublishedDatasets(
-  datasets: MonthlyHarmonizationDataset[]
+  datasets: MonthlyHarmonizationDataset[],
+  kodeKabKota?: string
 ): Promise<boolean> {
-  let success = false;
+  const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
   const migrated = migrateHarmonizationDatasets(datasets);
+
+  // 1. Centralized Supabase UPSERT
+  let supaSuccess = false;
+  try {
+    supaSuccess = await upsertWilayahDataset(targetKode, 'harmonisasi', migrated);
+  } catch (supaErr) {
+    console.warn('[Supabase API] savePublishedDatasets error:', supaErr);
+  }
+
+  // 2. Server persistence fallback
+  let serverSuccess = false;
   try {
     const res = await fetch('/api/datasets', {
       method: 'POST',
@@ -108,7 +157,7 @@ export async function savePublishedDatasets(
     });
     if (res.ok) {
       const data = await res.json();
-      success = !!data.success;
+      serverSuccess = !!data.success;
       if (data.lastUpdated) {
         setClientSavedTimestamp('harmonization', data.lastUpdated);
       }
@@ -117,7 +166,6 @@ export async function savePublishedDatasets(
     console.error('[API] Failed to persist harmonization datasets to server:', err);
   }
 
-  // Also sync to dev instance if running in shared preview
   const altUrl = getAlternativeApiUrl('/api/datasets');
   if (altUrl) {
     try {
@@ -129,7 +177,7 @@ export async function savePublishedDatasets(
     } catch (_) {}
   }
 
-  return success;
+  return supaSuccess || serverSuccess;
 }
 
 // Granular Note Saving to central cloud database
@@ -161,25 +209,54 @@ export async function saveHarmonizationNote(
     console.error('[API] Failed to persist harmonization note to server:', err);
   }
 
-  const altUrl = getAlternativeApiUrl('/api/harmonization-notes');
-  if (altUrl) {
-    try {
-      fetch(altUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ monthId, commodityId, regionId, note }),
-      }).catch(() => {});
-    } catch (_) {}
-  }
-
   return success;
 }
 
-// Fetch published IHK dataset
-export async function fetchPublishedIhkDataset(): Promise<{
+// Fetch published IHK dataset (Supabase with server fallback)
+export async function fetchPublishedIhkDataset(
+  kodeKabKota?: string
+): Promise<{
   ihkDataset: IhkCompleteDataset;
   lastUpdated?: string;
 } | null> {
+  const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
+
+  // 1. Supabase Cloud First
+  try {
+    const { data, error } = await supabase
+      .from('wilayah_datasets')
+      .select('*')
+      .eq('dataset_type', 'ihk')
+      .eq('kode_kabkota', targetKode)
+      .maybeSingle();
+
+    if (!error && data && data.payload && data.payload.regions) {
+      return {
+        ihkDataset: migrateIhkDataset(data.payload),
+        lastUpdated: data.updated_at,
+      };
+    }
+
+    if (targetKode !== '61.00') {
+      const { data: masterData } = await supabase
+        .from('wilayah_datasets')
+        .select('*')
+        .eq('dataset_type', 'ihk')
+        .eq('kode_kabkota', '61.00')
+        .maybeSingle();
+
+      if (masterData && masterData.payload && masterData.payload.regions) {
+        return {
+          ihkDataset: migrateIhkDataset(masterData.payload),
+          lastUpdated: masterData.updated_at,
+        };
+      }
+    }
+  } catch (supaErr) {
+    console.debug('[Supabase API] Failed to fetch IHK from Supabase:', supaErr);
+  }
+
+  // 2. Server API Fallback
   let primaryResult: { ihkDataset: IhkCompleteDataset; lastUpdated?: string } | null = null;
   try {
     const res = await fetch(`/api/ihk-datasets?_t=${Date.now()}`, {
@@ -199,41 +276,27 @@ export async function fetchPublishedIhkDataset(): Promise<{
     console.warn('[API] Could not reach /api/ihk-datasets:', err);
   }
 
-  // Cross-environment fallback: check live dev instance if on preview
-  const altUrl = getAlternativeApiUrl('/api/ihk-datasets');
-  if (altUrl) {
-    try {
-      const altRes = await fetch(`${altUrl}?_t=${Date.now()}`, {
-        headers: ANTI_CACHE_HEADERS,
-        cache: 'no-store',
-      });
-      if (altRes.ok) {
-        const altData = await altRes.json();
-        if (altData.success && altData.ihkDataset && altData.ihkDataset.regions) {
-          const migratedAlt = migrateIhkDataset(altData.ihkDataset);
-          if (
-            !primaryResult ||
-            (altData.lastUpdated && primaryResult.lastUpdated && new Date(altData.lastUpdated) > new Date(primaryResult.lastUpdated))
-          ) {
-            return {
-              ihkDataset: migratedAlt,
-              lastUpdated: altData.lastUpdated,
-            };
-          }
-        }
-      }
-    } catch (_) {}
-  }
-
   return primaryResult;
 }
 
-// Save/Publish IHK dataset to server
+// Save/Publish IHK dataset to Supabase and server
 export async function savePublishedIhkDataset(
-  ihkDataset: IhkCompleteDataset
+  ihkDataset: IhkCompleteDataset,
+  kodeKabKota?: string
 ): Promise<boolean> {
-  let success = false;
+  const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
   const migrated = migrateIhkDataset(ihkDataset);
+
+  // 1. Supabase Cloud UPSERT
+  let supaSuccess = false;
+  try {
+    supaSuccess = await upsertWilayahDataset(targetKode, 'ihk', migrated);
+  } catch (supaErr) {
+    console.warn('[Supabase API] savePublishedIhkDataset error:', supaErr);
+  }
+
+  // 2. Server persistence fallback
+  let serverSuccess = false;
   try {
     const res = await fetch('/api/ihk-datasets', {
       method: 'POST',
@@ -246,7 +309,7 @@ export async function savePublishedIhkDataset(
     });
     if (res.ok) {
       const data = await res.json();
-      success = !!data.success;
+      serverSuccess = !!data.success;
       if (data.lastUpdated) {
         setClientSavedTimestamp('ihk', data.lastUpdated);
       }
@@ -255,23 +318,20 @@ export async function savePublishedIhkDataset(
     console.error('[API] Failed to persist IHK dataset to server:', err);
   }
 
-  // Cross-environment sync
-  const altUrl = getAlternativeApiUrl('/api/ihk-datasets');
-  if (altUrl) {
-    try {
-      fetch(altUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ihkDataset: migrated }),
-      }).catch(() => {});
-    } catch (_) {}
-  }
-
-  return success;
+  return supaSuccess || serverSuccess;
 }
 
 // Reset server datasets
-export async function resetServerDatasets(): Promise<boolean> {
+export async function resetServerDatasets(kodeKabKota?: string): Promise<boolean> {
+  const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
+  try {
+    await supabase
+      .from('wilayah_datasets')
+      .delete()
+      .eq('kode_kabkota', targetKode)
+      .eq('dataset_type', 'harmonisasi');
+  } catch (_) {}
+
   try {
     const res = await fetch('/api/reset-data', {
       method: 'POST',
@@ -285,7 +345,16 @@ export async function resetServerDatasets(): Promise<boolean> {
 }
 
 // Reset server IHK dataset
-export async function resetServerIhkDataset(): Promise<boolean> {
+export async function resetServerIhkDataset(kodeKabKota?: string): Promise<boolean> {
+  const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
+  try {
+    await supabase
+      .from('wilayah_datasets')
+      .delete()
+      .eq('kode_kabkota', targetKode)
+      .eq('dataset_type', 'ihk');
+  } catch (_) {}
+
   try {
     const res = await fetch('/api/reset-ihk', {
       method: 'POST',
@@ -298,11 +367,51 @@ export async function resetServerIhkDataset(): Promise<boolean> {
   }
 }
 
-// Fetch published HPBS dataset
-export async function fetchPublishedHpbsDataset(): Promise<{
+// Fetch published HPBS dataset (Supabase with server fallback)
+export async function fetchPublishedHpbsDataset(
+  kodeKabKota?: string
+): Promise<{
   dataset: HpbsDataset;
   lastUpdated?: string;
 } | null> {
+  const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
+
+  // 1. Supabase Cloud First
+  try {
+    const { data, error } = await supabase
+      .from('wilayah_datasets')
+      .select('*')
+      .eq('dataset_type', 'hpbs')
+      .eq('kode_kabkota', targetKode)
+      .maybeSingle();
+
+    if (!error && data && data.payload && Array.isArray(data.payload.records)) {
+      return {
+        dataset: migrateHpbsDataset(data.payload),
+        lastUpdated: data.updated_at,
+      };
+    }
+
+    if (targetKode !== '61.00') {
+      const { data: masterData } = await supabase
+        .from('wilayah_datasets')
+        .select('*')
+        .eq('dataset_type', 'hpbs')
+        .eq('kode_kabkota', '61.00')
+        .maybeSingle();
+
+      if (masterData && masterData.payload && Array.isArray(masterData.payload.records)) {
+        return {
+          dataset: migrateHpbsDataset(masterData.payload),
+          lastUpdated: masterData.updated_at,
+        };
+      }
+    }
+  } catch (supaErr) {
+    console.debug('[Supabase API] Failed to fetch HPBS from Supabase:', supaErr);
+  }
+
+  // 2. Server API Fallback
   let primaryResult: { dataset: HpbsDataset; lastUpdated?: string } | null = null;
   try {
     const res = await fetch(`/api/hpbs-datasets?_t=${Date.now()}`, {
@@ -322,53 +431,38 @@ export async function fetchPublishedHpbsDataset(): Promise<{
     console.warn('[API] Could not reach /api/hpbs-datasets:', err);
   }
 
-  // Cross-environment fallback: check live dev instance if on preview
-  const altUrl = getAlternativeApiUrl('/api/hpbs-datasets');
-  if (altUrl) {
-    try {
-      const altRes = await fetch(`${altUrl}?_t=${Date.now()}`, {
-        headers: ANTI_CACHE_HEADERS,
-        cache: 'no-store',
-      });
-      if (altRes.ok) {
-        const altData = await altRes.json();
-        if (altData.success && altData.dataset && Array.isArray(altData.dataset.records)) {
-          const migratedAlt = migrateHpbsDataset(altData.dataset);
-          if (
-            !primaryResult ||
-            migratedAlt.records.length > primaryResult.dataset.records.length ||
-            (altData.lastUpdated && primaryResult.lastUpdated && new Date(altData.lastUpdated) > new Date(primaryResult.lastUpdated))
-          ) {
-            return {
-              dataset: migratedAlt,
-              lastUpdated: altData.lastUpdated,
-            };
-          }
-        }
-      }
-    } catch (_) {}
-  }
-
   return primaryResult;
 }
 
-// Save/Publish HPBS dataset to server
+// Save/Publish HPBS dataset to Supabase and server
 export async function savePublishedHpbsDataset(
-  dataset: HpbsDataset
+  dataset: HpbsDataset,
+  kodeKabKota?: string
 ): Promise<boolean> {
-  let success = false;
+  const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
   const migrated = migrateHpbsDataset(dataset);
+
+  const payload: Partial<HpbsDataset> = {
+    periodTitle: migrated.periodTitle,
+    records: migrated.records,
+    activePeriodId: migrated.activePeriodId || '2026-09',
+    periods: migrated.periods,
+    commodityNotes: migrated.commodityNotes || {},
+    lastUpdated: migrated.lastUpdated || new Date().toISOString(),
+    version: migrated.version,
+  };
+
+  // 1. Supabase Cloud UPSERT
+  let supaSuccess = false;
   try {
-    // Send complete dataset with periods and commodity notes so multiple months are preserved across sessions
-    const payload: Partial<HpbsDataset> = {
-      periodTitle: migrated.periodTitle,
-      records: migrated.records,
-      activePeriodId: migrated.activePeriodId || '2026-09',
-      periods: migrated.periods,
-      commodityNotes: migrated.commodityNotes || {},
-      lastUpdated: migrated.lastUpdated || new Date().toISOString(),
-      version: migrated.version,
-    };
+    supaSuccess = await upsertWilayahDataset(targetKode, 'hpbs', payload);
+  } catch (supaErr) {
+    console.warn('[Supabase API] savePublishedHpbsDataset error:', supaErr);
+  }
+
+  // 2. Server persistence fallback
+  let serverSuccess = false;
+  try {
     const res = await fetch('/api/hpbs-datasets', {
       method: 'POST',
       headers: {
@@ -380,7 +474,7 @@ export async function savePublishedHpbsDataset(
     });
     if (res.ok) {
       const data = await res.json();
-      success = !!data.success;
+      serverSuccess = !!data.success;
       if (data.lastUpdated) {
         setClientSavedTimestamp('hpbs', data.lastUpdated);
       }
@@ -389,23 +483,20 @@ export async function savePublishedHpbsDataset(
     console.error('[API] Failed to persist HPBS dataset to server:', err);
   }
 
-  // Cross-environment sync
-  const altUrl = getAlternativeApiUrl('/api/hpbs-datasets');
-  if (altUrl) {
-    try {
-      fetch(altUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dataset: migrated }),
-      }).catch(() => {});
-    } catch (_) {}
-  }
-
-  return success;
+  return supaSuccess || serverSuccess;
 }
 
 // Reset server HPBS dataset
-export async function resetServerHpbsDataset(): Promise<boolean> {
+export async function resetServerHpbsDataset(kodeKabKota?: string): Promise<boolean> {
+  const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
+  try {
+    await supabase
+      .from('wilayah_datasets')
+      .delete()
+      .eq('kode_kabkota', targetKode)
+      .eq('dataset_type', 'hpbs');
+  } catch (_) {}
+
   try {
     const res = await fetch('/api/reset-hpbs', { method: 'POST' });
     return res.ok;
@@ -415,23 +506,25 @@ export async function resetServerHpbsDataset(): Promise<boolean> {
   }
 }
 
-// Push/sync all datasets to server in one go
-export async function syncAllDatasetsToServer(payload: {
-  datasets?: MonthlyHarmonizationDataset[];
-  ihkDataset?: IhkCompleteDataset;
-  hpbsDataset?: HpbsDataset;
-}): Promise<boolean> {
+// Push/sync all datasets to Supabase and server in one go
+export async function syncAllDatasetsToServer(
+  payload: {
+    datasets?: MonthlyHarmonizationDataset[];
+    ihkDataset?: IhkCompleteDataset;
+    hpbsDataset?: HpbsDataset;
+  },
+  kodeKabKota?: string
+): Promise<boolean> {
   const promises: Promise<boolean>[] = [];
   if (payload.datasets && payload.datasets.length > 0) {
-    promises.push(savePublishedDatasets(payload.datasets));
+    promises.push(savePublishedDatasets(payload.datasets, kodeKabKota));
   }
   if (payload.ihkDataset) {
-    promises.push(savePublishedIhkDataset(payload.ihkDataset));
+    promises.push(savePublishedIhkDataset(payload.ihkDataset, kodeKabKota));
   }
   if (payload.hpbsDataset) {
-    promises.push(savePublishedHpbsDataset(payload.hpbsDataset));
+    promises.push(savePublishedHpbsDataset(payload.hpbsDataset, kodeKabKota));
   }
   const results = await Promise.all(promises);
   return results.length > 0 ? results.every(Boolean) : true;
 }
-

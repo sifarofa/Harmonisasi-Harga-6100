@@ -1,18 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import {
   Award,
-  BarChart3,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
   Layers,
-  MapPin,
   Search,
-  SlidersHorizontal,
-  Sparkles,
   Table,
-  TrendingDown,
-  TrendingUp,
   X,
 } from 'lucide-react';
 import { DEFAULT_REGIONS } from '../data/initialData';
@@ -122,8 +113,6 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
   const [filterType, setFilterType] = useState<'all' | 'Kabupaten' | 'Kota'>('all');
   const [stabilityFilter, setStabilityFilter] = useState<'all' | 'high_80' | 'high_70'>('all');
   const [sortBy, setSortBy] = useState<'stability_desc' | 'commodities_desc' | 'name_asc'>('stability_desc');
-  const [expandedRegions, setExpandedRegions] = useState<Record<string, boolean>>({});
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
   // Helper to extract status for a region based on price level (strictly excludes NIHIL / KOSONG)
   const getRegionStatusForLevel = (
@@ -457,13 +446,6 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
     };
   }, [currentLevelSummaries]);
 
-  const toggleRegionExpand = (regionId: string) => {
-    setExpandedRegions((prev) => ({
-      ...prev,
-      [regionId]: !prev[regionId],
-    }));
-  };
-
   const activeLevelMeta = PRICE_LEVEL_OPTIONS.find((p) => p.id === currentLevelKey);
 
   return (
@@ -498,32 +480,10 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
           </div>
 
           <div className="flex items-center gap-1.5 self-start md:self-auto shrink-0">
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              className={`p-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 ${
-                viewMode === 'grid'
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border-slate-200'
-              }`}
-              title="Tampilan Kartu Wilayah"
-            >
-              <BarChart3 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Kartu</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('table')}
-              className={`p-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 ${
-                viewMode === 'table'
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border-slate-200'
-              }`}
-              title="Tampilan Tabel Ringkas"
-            >
-              <Table className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Tabel</span>
-            </button>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs">
+              <Table className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Format: Tabel Analisis Wilayah</span>
+            </span>
           </div>
         </div>
 
@@ -582,83 +542,62 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
 
       {/* Single Price Level Breakdown */}
       <div className="p-4 sm:p-5 space-y-4">
-          {/* Executive KPI Stats for current active level */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {/* Top Region */}
-            <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 sm:p-3.5">
-              <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">
-                Wilayah Paling Stabil
-              </span>
-              <div className="mt-1 flex items-baseline justify-between">
-                <span className="text-sm sm:text-base font-bold text-emerald-950 truncate max-w-[170px]" title={activeLevelKpis.topRegion?.regionName}>
-                  {activeLevelKpis.topRegion ? activeLevelKpis.topRegion.regionName : '-'}
+          {/* Executive Summary Bar (Clean Table Strip, No bulky cards) */}
+          <div className="bg-slate-50 border border-slate-200/90 rounded-xl overflow-hidden shadow-2xs">
+            <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-slate-200 text-xs">
+              <div className="p-3">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Wilayah Paling Stabil
                 </span>
-                <span className="text-sm font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
-                  {activeLevelKpis.topRegion ? `${activeLevelKpis.topRegion.overallStabilityRate}%` : '0%'}
-                </span>
+                <div className="mt-1 flex items-baseline justify-between gap-1">
+                  <span className="font-bold text-slate-900 truncate">
+                    {activeLevelKpis.topRegion ? activeLevelKpis.topRegion.regionName : '-'}
+                  </span>
+                  <span className="font-extrabold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded text-[11px]">
+                    {activeLevelKpis.topRegion ? `${activeLevelKpis.topRegion.overallStabilityRate}%` : '0%'}
+                  </span>
+                </div>
               </div>
-              <span className="text-[10px] text-emerald-700 mt-1 block">
-                {activeLevelKpis.topRegion?.highStabilityCommodities.length || 0} komoditas berstabilitas tinggi
-              </span>
-            </div>
 
-            {/* Average Provincial Stability */}
-            <div className="bg-white border border-slate-200 rounded-xl p-3 sm:p-3.5 shadow-2xs">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                Rata-rata Stabilitas Se-Kalbar
-              </span>
-              <div className="mt-1 flex items-baseline justify-between">
-                <span className="text-xl sm:text-2xl font-black text-slate-900">
-                  {activeLevelKpis.avgStabilityRate}%
+              <div className="p-3">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Rata-rata Stabilitas
                 </span>
-                <span className="text-xs text-slate-500 font-medium">
-                  {activeLevelMeta?.shortLabel}
-                </span>
+                <div className="mt-1 flex items-baseline justify-between gap-1">
+                  <span className="font-bold text-slate-900">
+                    {activeLevelKpis.avgStabilityRate}%
+                  </span>
+                  <span className="text-slate-500 text-[11px]">Se-Kalbar</span>
+                </div>
               </div>
-              <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
-                <div
-                  className="bg-emerald-500 h-1.5 rounded-full transition-all"
-                  style={{ width: `${Math.min(100, activeLevelKpis.avgStabilityRate)}%` }}
-                ></div>
-              </div>
-            </div>
 
-            {/* Total High Stability Commodities Identified */}
-            <div className="bg-white border border-slate-200 rounded-xl p-3 sm:p-3.5 shadow-2xs">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                Total Pasangan Wilayah-Komoditas Stabil
-              </span>
-              <div className="mt-1 flex items-baseline justify-between">
-                <span className="text-xl sm:text-2xl font-black text-emerald-700">
-                  {activeLevelKpis.totalHighStabilityCount}
+              <div className="p-3">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Komoditas Terkendali
                 </span>
-                <span className="text-xs text-slate-500 font-medium">
-                  rate &ge; 70%
-                </span>
+                <div className="mt-1 flex items-baseline justify-between gap-1">
+                  <span className="font-bold text-emerald-700">
+                    {activeLevelKpis.totalHighStabilityCount} Pasang
+                  </span>
+                  <span className="text-slate-500 text-[11px]">&ge; 70%</span>
+                </div>
               </div>
-              <span className="text-[10px] text-slate-500 mt-1 block">
-                Stabilitas harga terverifikasi di kab/kota
-              </span>
-            </div>
 
-            {/* Most Consistent Commodity se-Provinsi */}
-            <div className="bg-white border border-slate-200 rounded-xl p-3 sm:p-3.5 shadow-2xs">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                Komoditas Paling Merata Stabil
-              </span>
-              <div className="mt-1">
-                <span className="text-xs sm:text-sm font-bold text-slate-900 block truncate" title={activeLevelKpis.mostCommonStableCommodity}>
-                  {activeLevelKpis.mostCommonStableCommodity}
+              <div className="p-3">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Komoditas Paling Merata
                 </span>
+                <div className="mt-1 truncate">
+                  <span className="font-bold text-slate-900 truncate block" title={activeLevelKpis.mostCommonStableCommodity}>
+                    {activeLevelKpis.mostCommonStableCommodity}
+                  </span>
+                </div>
               </div>
-              <span className="text-[10px] text-slate-500 mt-1 block">
-                Terkendali tanpa lonjakan di lintas wilayah
-              </span>
             </div>
           </div>
 
           {/* Search, Filter, Sort Toolbar */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+          <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col md:flex-row md:items-center justify-between gap-2.5 shadow-2xs">
             <div className="flex flex-wrap items-center gap-2">
               {/* Search */}
               <div className="relative">
@@ -668,7 +607,7 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Cari Kab/Kota atau komoditas..."
-                  className="pl-8 pr-7 py-1.5 text-xs bg-white text-slate-800 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-48 sm:w-60"
+                  className="pl-8 pr-7 py-1.5 text-xs bg-slate-50 text-slate-800 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-48 sm:w-60"
                 />
                 {searchQuery && (
                   <button
@@ -683,7 +622,7 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
               </div>
 
               {/* Type Filter with Dynamic Sample Counts */}
-              <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-200 text-xs font-medium">
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-medium">
                 <button
                   type="button"
                   onClick={() => setFilterType('all')}
@@ -732,7 +671,7 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
               <select
                 value={stabilityFilter}
                 onChange={(e) => setStabilityFilter(e.target.value as any)}
-                className="px-2.5 py-1.5 text-xs bg-white text-slate-700 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                className="px-2.5 py-1.5 text-xs bg-slate-50 text-slate-700 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
               >
                 <option value="all">Semua Stabilitas</option>
                 <option value="high_80">Stabilitas Tinggi (&ge; 80%)</option>
@@ -746,7 +685,7 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="px-2.5 py-1.5 text-xs bg-white text-slate-700 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                className="px-2.5 py-1.5 text-xs bg-slate-50 text-slate-700 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
               >
                 <option value="stability_desc">Stabilitas Tertinggi (%)</option>
                 <option value="commodities_desc">Komoditas Stabil Terbanyak</option>
@@ -755,196 +694,99 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
             </div>
           </div>
 
-          {/* 5. View Mode: Cards Grid (Simplified, Clean & Intuitive) */}
-          {viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              {filteredSummaries.map((regionSummary, rankIdx) => {
-                const isExpanded = expandedRegions[regionSummary.regionId];
-                const highCount = regionSummary.highStabilityCommodities.length;
-                const fullyCount = regionSummary.fullyStableCommodities.length;
-                const activeCount = regionSummary.totalSurveyedCommodities;
-                const nihilCount = regionSummary.totalNihilCommodities;
+          {/* MAIN VIEW: Structured Table of Regional Stability (Not Cards) */}
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-2xs">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-900 text-white font-semibold">
+                  <th className="py-3 px-3.5 border-r border-slate-800 w-14 text-center">Rank</th>
+                  <th className="py-3 px-3.5 border-r border-slate-800 min-w-[180px]">Kabupaten / Kota</th>
+                  <th className="py-3 px-3.5 border-r border-slate-800 w-36 text-center">Tingkat Stabilitas</th>
+                  <th className="py-3 px-3.5 border-r border-slate-800 w-36 text-center">Rasio Komoditas Stabil</th>
+                  <th className="py-3 px-3.5 min-w-[340px]">Komoditas dengan Tingkat Stabilitas Tertinggi</th>
+                  <th className="py-3 px-3.5 border-l border-slate-800 w-28 text-center">Status TPID</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {filteredSummaries.map((regionSummary, rankIdx) => {
+                  const rate = regionSummary.overallStabilityRate;
+                  const rateBadgeClass =
+                    rate >= 80
+                      ? 'text-emerald-800 bg-emerald-50 border-emerald-300'
+                      : rate >= 70
+                      ? 'text-teal-800 bg-teal-50 border-teal-300'
+                      : 'text-amber-800 bg-amber-50 border-amber-300';
 
-                // Display items: default first 6, or all if expanded
-                const displayedCommodities = isExpanded
-                  ? regionSummary.highStabilityCommodities
-                  : regionSummary.highStabilityCommodities.slice(0, 6);
+                  const tpidStatusBadge =
+                    rate >= 80 ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        Terkendali
+                      </span>
+                    ) : rate >= 70 ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 border border-teal-300">
+                        Stabil
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                        Waspada
+                      </span>
+                    );
 
-                const rate = regionSummary.overallStabilityRate;
-                const rateBadgeClass =
-                  rate >= 80
-                    ? 'text-emerald-800 bg-emerald-50 border-emerald-200'
-                    : rate >= 70
-                    ? 'text-teal-800 bg-teal-50 border-teal-200'
-                    : 'text-slate-700 bg-slate-100 border-slate-200';
-
-                return (
-                  <div
-                    key={regionSummary.regionId}
-                    className="bg-white rounded-xl border border-slate-200/90 hover:border-emerald-300 p-4 transition-all shadow-2xs hover:shadow-xs flex flex-col justify-between"
-                  >
-                    <div>
-                      {/* Header: Rank, Nama Wilayah, & Badge Stabilitas */}
-                      <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span
-                            className={`w-6 h-6 rounded-md text-xs font-bold flex items-center justify-center shrink-0 ${
-                              rankIdx === 0
-                                ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                                : rankIdx === 1
-                                ? 'bg-slate-200 text-slate-800'
-                                : rankIdx === 2
-                                ? 'bg-amber-50 text-amber-800 border border-amber-200/60'
-                                : 'bg-slate-100 text-slate-600'
-                            }`}
-                          >
-                            {rankIdx + 1}
-                          </span>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <h4 className="text-sm font-bold text-slate-900 truncate">
-                                {regionSummary.regionName}
-                              </h4>
-                              <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 text-slate-500 rounded font-medium shrink-0">
-                                {regionSummary.regionType}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Overall Stability Badge */}
+                  return (
+                    <tr
+                      key={regionSummary.regionId}
+                      className="hover:bg-slate-50/80 transition-colors group"
+                    >
+                      {/* Rank */}
+                      <td className="py-2.5 px-3.5 text-center font-bold text-slate-700 border-r border-slate-200">
                         <span
-                          className={`px-2.5 py-1 text-xs font-black rounded-lg border shrink-0 ${rateBadgeClass}`}
-                        >
-                          {rate}% Stabil
-                        </span>
-                      </div>
-
-                      {/* Metric Ringkas & Jelas: Komoditas Aktif & Komoditas Nihil */}
-                      <div className="mt-2.5 flex flex-wrap items-center justify-between text-xs text-slate-600 gap-1">
-                        <div>
-                          <span className="font-bold text-slate-900">{highCount}</span>
-                          <span className="text-slate-500"> dari {activeCount} komoditas aktif stabil (&ge;70%)</span>
-                        </div>
-                        {nihilCount > 0 && (
-                          <span className="text-[11px] text-slate-400 italic">
-                            ({nihilCount} komoditas nihil, tidak dihitung)
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Progress Bar Bersih Tunggal */}
-                      <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${
-                            rate >= 80 ? 'bg-emerald-500' : rate >= 70 ? 'bg-teal-500' : 'bg-slate-400'
+                          className={`inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold ${
+                            rankIdx === 0
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : rankIdx === 1
+                              ? 'bg-slate-200 text-slate-800'
+                              : rankIdx === 2
+                              ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                              : 'bg-slate-100 text-slate-600'
                           }`}
-                          style={{ width: `${Math.min(100, rate)}%` }}
-                        />
-                      </div>
-
-                      {/* Daftar Komoditas Utama yang Terjaga Stabil */}
-                      <div className="mt-3">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[11px] font-semibold text-slate-500">
-                            Komoditas Paling Stabil:
-                          </span>
-                          {highCount > 0 && (
-                            <span className="text-[10px] text-emerald-700 font-semibold">
-                              {highCount} komoditas
-                            </span>
-                          )}
-                        </div>
-
-                        {highCount > 0 ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {displayedCommodities.map((comm) => (
-                              <button
-                                key={comm.commodityId}
-                                type="button"
-                                onClick={() => onSelectCommodity && onSelectCommodity(comm.commodityId)}
-                                title={`Lihat pergerakan harga ${comm.commodityName}: ${comm.stabilityRate}% stabil (${comm.stabilMonths}/${comm.totalSurveiMonths} bulan survei)`}
-                                className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border transition-all cursor-pointer ${
-                                  comm.isFullyStable
-                                    ? 'bg-emerald-50/80 text-emerald-900 border-emerald-200 hover:bg-emerald-100 font-medium'
-                                    : 'bg-slate-50 text-slate-700 border-slate-200/80 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-200'
-                                }`}
-                              >
-                                <span>{comm.commodityName}</span>
-                                <span className="text-[10px] font-bold text-emerald-700 bg-white/80 px-1 py-0.2 rounded border border-emerald-100">
-                                  {comm.stabilityRate}%
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-slate-400 italic py-1">
-                            Tidak ada komoditas dengan stabilitas &ge; 70% pada level ini
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Expand/Collapse Toggle if there are more items */}
-                    {highCount > 6 && (
-                      <div className="mt-2.5 pt-2 border-t border-slate-100 flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => toggleRegionExpand(regionSummary.regionId)}
-                          className="text-[11px] text-emerald-700 hover:text-emerald-900 font-semibold inline-flex items-center gap-1 cursor-pointer"
                         >
-                          <span>
-                            {isExpanded
-                              ? 'Tutup'
-                              : `+${highCount - 6} lainnya`}
-                          </span>
-                          {isExpanded ? (
-                            <ChevronUp className="w-3 h-3" />
-                          ) : (
-                            <ChevronDown className="w-3 h-3" />
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            /* 6. View Mode: Compact Table */
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-900 text-white font-semibold">
-                    <th className="py-2.5 px-3 border-r border-slate-800 w-12 text-center">Rank</th>
-                    <th className="py-2.5 px-3 border-r border-slate-800 min-w-[160px]">Kabupaten/Kota</th>
-                    <th className="py-2.5 px-3 border-r border-slate-800 w-28 text-center">Stabilitas (%)</th>
-                    <th className="py-2.5 px-3 border-r border-slate-800 w-28 text-center">Komoditas Stabil</th>
-                    <th className="py-2.5 px-3 min-w-[320px]">Komoditas dengan Tingkat Stabilitas Tertinggi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 bg-white">
-                  {filteredSummaries.map((regionSummary, rankIdx) => (
-                    <tr key={regionSummary.regionId} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-2 px-3 text-center font-bold text-slate-700 border-r border-slate-200">
-                        #{rankIdx + 1}
+                          {rankIdx + 1}
+                        </span>
                       </td>
-                      <td className="py-2 px-3 font-semibold text-slate-900 border-r border-slate-200">
-                        <div className="flex items-center gap-1.5">
-                          <span>{regionSummary.regionName}</span>
-                          <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">
+
+                      {/* Region Name & Type */}
+                      <td className="py-2.5 px-3.5 border-r border-slate-200">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 text-xs">
+                            {regionSummary.regionName}
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded font-medium border border-slate-200">
                             {regionSummary.regionType}
                           </span>
                         </div>
                       </td>
-                      <td className="py-2 px-3 text-center border-r border-slate-200 font-bold text-emerald-700">
-                        <span className="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200">
-                          {regionSummary.overallStabilityRate}%
-                        </span>
+
+                      {/* Stability Rate (%) & Progress Bar */}
+                      <td className="py-2.5 px-3.5 text-center border-r border-slate-200">
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`px-2 py-0.5 rounded font-black text-xs border ${rateBadgeClass}`}>
+                            {rate}%
+                          </span>
+                          <div className="w-20 bg-slate-100 rounded-full h-1 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                rate >= 80 ? 'bg-emerald-500' : rate >= 70 ? 'bg-teal-500' : 'bg-amber-500'
+                              }`}
+                              style={{ width: `${Math.min(100, rate)}%` }}
+                            />
+                          </div>
+                        </div>
                       </td>
-                      <td className="py-2 px-3 text-center border-r border-slate-200 font-medium text-slate-700">
+
+                      {/* Ratio Komoditas Stabil */}
+                      <td className="py-2.5 px-3.5 text-center border-r border-slate-200 font-medium">
                         <div>
-                          <span className="font-bold text-slate-900">{regionSummary.highStabilityCommodities.length}</span>
+                          <strong className="text-slate-900">{regionSummary.highStabilityCommodities.length}</strong>
                           <span className="text-slate-500"> / {regionSummary.totalSurveyedCommodities}</span>
                         </div>
                         {regionSummary.totalNihilCommodities > 0 && (
@@ -953,32 +795,48 @@ export const RegionalStabilitySummary: React.FC<RegionalStabilitySummaryProps> =
                           </span>
                         )}
                       </td>
-                      <td className="py-2 px-3">
-                        <div className="flex flex-wrap gap-1">
-                          {regionSummary.highStabilityCommodities.slice(0, 5).map((c) => (
-                            <button
-                              key={c.commodityId}
-                              type="button"
-                              onClick={() => onSelectCommodity && onSelectCommodity(c.commodityId)}
-                              className="px-1.5 py-0.5 bg-slate-100 hover:bg-emerald-50 text-slate-800 rounded border border-slate-200 hover:border-emerald-300 text-[11px] font-medium transition-colors cursor-pointer"
-                              title={`Klik untuk melihat grafik time series ${c.commodityName}`}
-                            >
-                              {c.commodityName} ({c.stabilityRate}%)
-                            </button>
-                          ))}
-                          {regionSummary.highStabilityCommodities.length > 5 && (
-                            <span className="text-[10px] text-slate-500 self-center">
-                              +{regionSummary.highStabilityCommodities.length - 5} lainnya
+
+                      {/* Komoditas Paling Stabil */}
+                      <td className="py-2.5 px-3.5">
+                        <div className="flex flex-wrap gap-1.5">
+                          {regionSummary.highStabilityCommodities.length > 0 ? (
+                            regionSummary.highStabilityCommodities.slice(0, 6).map((c) => (
+                              <button
+                                key={c.commodityId}
+                                type="button"
+                                onClick={() => onSelectCommodity && onSelectCommodity(c.commodityId)}
+                                className="px-2 py-0.5 bg-slate-50 hover:bg-emerald-50 text-slate-800 rounded border border-slate-200 hover:border-emerald-300 text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                                title={`Klik untuk melihat grafik komoditas ${c.commodityName}: ${c.stabilityRate}% stabil (${c.stabilMonths}/${c.totalSurveiMonths} bulan)`}
+                              >
+                                <span>{c.commodityName}</span>
+                                <span className="text-[10px] font-bold text-emerald-700 bg-white px-1 py-0.2 rounded border border-slate-200">
+                                  {c.stabilityRate}%
+                                </span>
+                              </button>
+                            ))
+                          ) : (
+                            <span className="text-slate-400 italic text-[11px]">
+                              Tidak ada komoditas stabil &ge; 70% pada level harga ini
+                            </span>
+                          )}
+                          {regionSummary.highStabilityCommodities.length > 6 && (
+                            <span className="text-[10px] text-slate-500 self-center font-medium">
+                              +{regionSummary.highStabilityCommodities.length - 6} lainnya
                             </span>
                           )}
                         </div>
                       </td>
+
+                      {/* Status TPID */}
+                      <td className="py-2.5 px-3.5 text-center border-l border-slate-200">
+                        {tpidStatusBadge}
+                      </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
           {filteredSummaries.length === 0 && (
             <div className="p-8 text-center bg-slate-50 border border-slate-200 rounded-xl">
