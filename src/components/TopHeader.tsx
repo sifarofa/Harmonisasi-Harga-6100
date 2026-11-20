@@ -51,6 +51,8 @@ interface TopHeaderProps {
   onForceRefresh?: () => void;
   onOpenBackupModal?: () => void;
   onOpenUserManagement?: () => void;
+  syncStatus?: 'synced' | 'syncing' | 'error' | 'offline';
+  syncMessage?: string;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -79,6 +81,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   hasNewVersion = false,
   onForceRefresh,
   onOpenBackupModal,
+  syncStatus = 'synced',
+  syncMessage,
 }) => {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
@@ -339,6 +343,29 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               <span className="text-[11px] hidden sm:inline">Cadangan</span>
             </button>
           )}
+
+          {/* Supabase Centralized Real-time Sync Status Indicator */}
+          <div
+            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold shadow-2xs select-none"
+            title={syncMessage || 'Status sinkronisasi database terpusat Supabase Cloud'}
+          >
+            {syncStatus === 'syncing' ? (
+              <span className="flex items-center gap-1.5 text-blue-700">
+                <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
+                <span>Menyinkronkan...</span>
+              </span>
+            ) : syncStatus === 'error' ? (
+              <span className="flex items-center gap-1.5 text-rose-700">
+                <span className="w-2 h-2 rounded-full bg-rose-500" />
+                <span>Offline / Terproteksi</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-emerald-800">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Tersinkron ke Supabase</span>
+              </span>
+            )}
+          </div>
 
           {/* Always Available Sync & Force Refresh Button */}
           <button

@@ -53,9 +53,14 @@ import {
   supabase,
   upsertWilayahDataset,
   loadWilayahDatasetsFromSupabase,
+  syncHarmonisasiToSupabase,
+  syncIhkToSupabase,
+  syncHpbsToSupabase,
+  deleteHarmonisasiPeriodFromSupabase,
+  deleteHpbsPeriodFromSupabase,
   WilayahDatasetRow,
   formatKodeKabKota,
-} from './lib/supabaseClient';
+} from './lib/supabase';
 
 const LOCAL_STORAGE_KEY = STORAGE_KEYS.HARMONIZATION;
 const IHK_STORAGE_KEY = STORAGE_KEYS.IHK;
@@ -202,6 +207,10 @@ export default function App() {
 
   // User Management Modal (Admin Provinsi & Admin Kab/Kota)
   const [isUserManagementOpen, setIsUserManagementOpen] = useState<boolean>(false);
+
+  // Supabase Centralized Real-Time Sync Status
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'offline'>('synced');
+  const [syncMessage, setSyncMessage] = useState<string>('Tersinkron dengan Supabase Cloud');
 
   // IHK Consumer Dataset State (Terpisah dari dataset harmonisasi)
   const [ihkDataset, setIhkDataset] = useState<IhkCompleteDataset>(() => {
@@ -517,49 +526,73 @@ export default function App() {
   }, [authUser]);
 
   // Handlers with automatic Supabase UPSERT & multi-device sync
-  const handleUpdateHpbsDataset = (newDataset: HpbsDataset) => {
+  const handleUpdateHpbsDataset = async (newDataset: HpbsDataset) => {
     setHpbsDataset(newDataset);
     persistHpbsDatasetLocally(newDataset, true);
     const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
-    upsertWilayahDataset(userKode, 'hpbs', newDataset, authUser?.agencyName || userKode).then((ok) => {
-      if (ok) {
+
+    setSyncStatus('syncing');
+    setSyncMessage('Menyinkronkan data V-HPBS ke Supabase...');
+    try {
+      const res = await syncHpbsToSupabase(newDataset, userKode);
+      if (res.success) {
+        setSyncStatus('synced');
+        setSyncMessage('Tersinkron dengan Supabase Cloud');
         showPublishToast('✓ Data Relatif Harga (V-HPBS) berhasil disimpan ke Supabase!');
+      } else {
+        setSyncStatus('offline');
+        setSyncMessage('Tersimpan di Penyimpanan Lokal (Koneksi Supabase Tertunda)');
       }
-    });
+    } catch {
+      setSyncStatus('offline');
+    }
     savePublishedHpbsDataset(newDataset, userKode);
   };
 
-  const handleResetHpbsDataset = () => {
+  const handleResetHpbsDataset = async () => {
     const initial = generateInitialHpbsDataset();
     setHpbsDataset(initial);
     persistHpbsDatasetLocally(initial, false);
     const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
-    upsertWilayahDataset(userKode, 'hpbs', initial, authUser?.agencyName || userKode).then(() => {
-      showPublishToast('✓ Data V-HPBS telah direset ke data awal resmi di Supabase.', 'info');
-    });
+    setSyncStatus('syncing');
+    await syncHpbsToSupabase(initial, userKode);
+    setSyncStatus('synced');
+    showPublishToast('✓ Data V-HPBS telah direset ke data awal resmi di Supabase.', 'info');
     resetServerHpbsDataset(userKode);
   };
 
-  const handleSaveIhkDataset = (newDataset: IhkCompleteDataset) => {
+  const handleSaveIhkDataset = async (newDataset: IhkCompleteDataset) => {
     setIhkDataset(newDataset);
     savePersistentItem(STORAGE_KEYS.IHK, newDataset, true);
     const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
-    upsertWilayahDataset(userKode, 'ihk', newDataset, authUser?.agencyName || userKode).then((ok) => {
-      if (ok) {
+
+    setSyncStatus('syncing');
+    setSyncMessage('Menyinkronkan data IHK ke Supabase...');
+    try {
+      const res = await syncIhkToSupabase(newDataset, userKode);
+      if (res.success) {
+        setSyncStatus('synced');
+        setSyncMessage('Tersinkron dengan Supabase Cloud');
         showPublishToast('✓ File IHK berhasil diunggah & disimpan ke Supabase!');
+      } else {
+        setSyncStatus('offline');
+        setSyncMessage('Tersimpan di Penyimpanan Lokal (Koneksi Supabase Tertunda)');
       }
-    });
+    } catch {
+      setSyncStatus('offline');
+    }
     savePublishedIhkDataset(newDataset, userKode);
   };
 
-  const handleResetIhkDataset = () => {
+  const handleResetIhkDataset = async () => {
     const initial = generateInitialIhkDataset();
     setIhkDataset(initial);
     savePersistentItem(STORAGE_KEYS.IHK, initial, false);
     const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
-    upsertWilayahDataset(userKode, 'ihk', initial, authUser?.agencyName || userKode).then(() => {
-      showPublishToast('✓ Data IHK telah direset ke data awal resmi di Supabase.', 'info');
-    });
+    setSyncStatus('syncing');
+    await syncIhkToSupabase(initial, userKode);
+    setSyncStatus('synced');
+    showPublishToast('✓ Data IHK telah direset ke data awal resmi di Supabase.', 'info');
     resetServerIhkDataset(userKode);
   };
 
@@ -573,20 +606,30 @@ export default function App() {
     (datasets.length > 0 ? datasets[datasets.length - 1] : null);
 
   // Handlers with automatic persistent storage & Supabase UPSERT
-  const handleUpdateDataset = (updated: MonthlyHarmonizationDataset) => {
+  const handleUpdateDataset = async (updated: MonthlyHarmonizationDataset) => {
     const next = datasets.map((d) => (d.id === updated.id ? updated : d));
     setDatasets(next);
     savePersistentItem(STORAGE_KEYS.HARMONIZATION, next, true);
     const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
-    upsertWilayahDataset(userKode, 'harmonisasi', next, authUser?.agencyName || userKode).then((ok) => {
-      if (ok) {
+
+    setSyncStatus('syncing');
+    try {
+      const res = await syncHarmonisasiToSupabase(next, userKode, regions);
+      if (res.success) {
+        setSyncStatus('synced');
+        setSyncMessage('Tersinkron dengan Supabase Cloud');
         showPublishToast('✓ Perubahan status komoditas berhasil disimpan ke Supabase & tersinkron real-time!');
+      } else {
+        setSyncStatus('offline');
+        setSyncMessage('Tersimpan di Penyimpanan Lokal (Koneksi Supabase Tertunda)');
       }
-    });
+    } catch {
+      setSyncStatus('offline');
+    }
     savePublishedDatasets(next, userKode);
   };
 
-  const handleAddMonth = (newDataset: MonthlyHarmonizationDataset) => {
+  const handleAddMonth = async (newDataset: MonthlyHarmonizationDataset) => {
     const filtered = datasets.filter((d) => d.id !== newDataset.id);
     const combined = [...filtered, newDataset].sort((a, b) => {
       if (a.year !== b.year) return a.year - b.year;
@@ -598,15 +641,23 @@ export default function App() {
     setActiveTab('grid');
 
     const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
-    upsertWilayahDataset(userKode, 'harmonisasi', combined, authUser?.agencyName || userKode).then((ok) => {
-      if (ok) {
+    setSyncStatus('syncing');
+    try {
+      const res = await syncHarmonisasiToSupabase(combined, userKode, regions);
+      if (res.success) {
+        setSyncStatus('synced');
+        setSyncMessage('Tersinkron dengan Supabase Cloud');
         showPublishToast(`✓ Periode ${newDataset.monthLabel} berhasil ditambahkan & disimpan ke Supabase!`);
+      } else {
+        setSyncStatus('offline');
       }
-    });
+    } catch {
+      setSyncStatus('offline');
+    }
     savePublishedDatasets(combined, userKode);
   };
 
-  const handleImportDatasets = (incoming: MonthlyHarmonizationDataset | MonthlyHarmonizationDataset[], replaceAll: boolean = false) => {
+  const handleImportDatasets = async (incoming: MonthlyHarmonizationDataset | MonthlyHarmonizationDataset[], replaceAll: boolean = false) => {
     const list = Array.isArray(incoming) ? incoming : [incoming];
     if (list.length === 0) return;
 
@@ -629,17 +680,27 @@ export default function App() {
     setActiveTab('grid');
 
     const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
-    upsertWilayahDataset(userKode, 'harmonisasi', combined, authUser?.agencyName || userKode).then((ok) => {
-      if (ok) {
+    setSyncStatus('syncing');
+    setSyncMessage(`Menyimpan ${list.length} periode ke Supabase...`);
+    try {
+      const res = await syncHarmonisasiToSupabase(combined, userKode, regions);
+      if (res.success) {
+        setSyncStatus('synced');
+        setSyncMessage('Tersinkron dengan Supabase Cloud');
         showPublishToast(
           `✓ Data ${list.length} periode berhasil diunggah & disimpan secara permanen ke Supabase!`
         );
+      } else {
+        setSyncStatus('offline');
+        setSyncMessage('Tersimpan di Penyimpanan Lokal (Koneksi Supabase Tertunda)');
       }
-    });
+    } catch {
+      setSyncStatus('offline');
+    }
     savePublishedDatasets(combined, userKode);
   };
 
-  const handleDeleteMonth = (monthId: string) => {
+  const handleDeleteMonth = async (monthId: string) => {
     const remaining = datasets.filter((d) => d.id !== monthId);
     if (selectedMonthId === monthId) {
       setSelectedMonthId(remaining[0]?.id || '');
@@ -647,13 +708,16 @@ export default function App() {
     setDatasets(remaining);
     savePersistentItem(STORAGE_KEYS.HARMONIZATION, remaining, true);
     const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
-    upsertWilayahDataset(userKode, 'harmonisasi', remaining, authUser?.agencyName || userKode).then(() => {
-      showPublishToast('✓ Perubahan penghapusan data telah diperbarui di Supabase.');
-    });
+
+    setSyncStatus('syncing');
+    await deleteHarmonisasiPeriodFromSupabase(monthId, userKode);
+    await upsertWilayahDataset(userKode, 'harmonisasi', remaining, authUser?.agencyName || userKode);
+    setSyncStatus('synced');
+    showPublishToast('✓ Perubahan penghapusan data telah diperbarui di Supabase.');
     savePublishedDatasets(remaining, userKode);
   };
 
-  const handleDeleteMonths = (monthIds: string[]) => {
+  const handleDeleteMonths = async (monthIds: string[]) => {
     const idSet = new Set(monthIds);
     const remaining = datasets.filter((d) => !idSet.has(d.id));
     if (idSet.has(selectedMonthId)) {
@@ -662,9 +726,14 @@ export default function App() {
     setDatasets(remaining);
     savePersistentItem(STORAGE_KEYS.HARMONIZATION, remaining, true);
     const userKode = formatKodeKabKota(authUser?.regionCode || '61.00');
-    upsertWilayahDataset(userKode, 'harmonisasi', remaining, authUser?.agencyName || userKode).then(() => {
-      showPublishToast('✓ Perubahan penghapusan data telah diperbarui di Supabase.');
-    });
+
+    setSyncStatus('syncing');
+    for (const mId of monthIds) {
+      await deleteHarmonisasiPeriodFromSupabase(mId, userKode);
+    }
+    await upsertWilayahDataset(userKode, 'harmonisasi', remaining, authUser?.agencyName || userKode);
+    setSyncStatus('synced');
+    showPublishToast('✓ Perubahan penghapusan data telah diperbarui di Supabase.');
     savePublishedDatasets(remaining, userKode);
   };
 
@@ -824,6 +893,8 @@ export default function App() {
           authUser={authUser}
           onLogout={handlePortalLogout}
           onOpenUserManagement={() => setIsUserManagementOpen(true)}
+          syncStatus={syncStatus}
+          syncMessage={syncMessage}
           onOpenOwnerAuth={(actionName) => requireOwner(actionName || 'Akses Owner', () => {})}
           onLogoutOwner={handleLogoutOwner}
           onToggleSidebarMobile={() => setIsSidebarMobileOpen(!isSidebarMobileOpen)}
