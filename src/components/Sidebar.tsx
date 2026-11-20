@@ -105,7 +105,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleSelectTab = (tab: TabType) => {
     setActiveTab(tab);
-    onCloseMobile();
   };
 
   const handleHarmonisasiParentClick = () => {
@@ -133,21 +132,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      {/* Mobile Backdrop Overlay */}
-      {isOpenMobile && (
-        <div
-          onClick={onCloseMobile}
-          className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 lg:hidden transition-opacity"
-          aria-hidden="true"
-        />
-      )}
-
-      {/* Main Sidebar Container (Permanently Fixed Wide Layout) */}
+      {/* Main Sidebar Container (Permanently Fixed Wide Layout Synced Like PC) */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 bg-white border-r border-slate-200 flex flex-col h-screen select-none transition-transform duration-300 ease-in-out ${
-          /* Mobile classes */
-          isOpenMobile ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0 w-72 shadow-xl lg:shadow-none`}
+        className="w-72 shrink-0 sticky top-0 h-screen z-40 bg-white border-r border-slate-200 flex flex-col select-none shadow-none"
       >
         {/* 1. Header & Branding */}
         <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0 bg-white">
@@ -165,18 +152,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
               </div>
             </div>
-          </div>
-
-          {/* Close button for Mobile only */}
-          <div className="flex items-center lg:hidden">
-            <button
-              type="button"
-              onClick={onCloseMobile}
-              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
-              title="Tutup Menu"
-            >
-              <X className="w-5 h-5" />
-            </button>
           </div>
         </div>
 
@@ -359,7 +334,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     id="vert-subtab-hpbs-agregat"
                     onClick={() => {
                       onSelectHpbsSubTab?.('agregat_kalbar');
-                      onCloseMobile();
                     }}
                     className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
                       hpbsSubTab === 'agregat_kalbar' || !hpbsSubTab
@@ -377,7 +351,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     id="vert-subtab-hpbs-matriks"
                     onClick={() => {
                       onSelectHpbsSubTab?.('matriks_wilayah');
-                      onCloseMobile();
                     }}
                     className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
                       hpbsSubTab === 'matriks_wilayah'
@@ -395,7 +368,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     id="vert-subtab-hpbs-detail"
                     onClick={() => {
                       onSelectHpbsSubTab?.('responden_detail');
-                      onCloseMobile();
                     }}
                     className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
                       hpbsSubTab === 'responden_detail'
@@ -413,7 +385,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     id="vert-subtab-hpbs-series"
                     onClick={() => {
                       onSelectHpbsSubTab?.('series_stabilitas');
-                      onCloseMobile();
                     }}
                     className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
                       hpbsSubTab === 'series_stabilitas'

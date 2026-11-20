@@ -134,7 +134,6 @@ export default function App() {
   const [regions] = useState<RegionInfo[]>(DEFAULT_REGIONS);
   const [activeTab, setActiveTab] = useState<TabType>('price_levels');
   const [navOrientation, setNavOrientation] = useState<'vertical' | 'horizontal'>('vertical');
-  const [isSidebarMobileOpen, setIsSidebarMobileOpen] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [selectedMonthId, setSelectedMonthId] = useState<string>(() => {
     if (datasets.length > 0) {
@@ -845,8 +844,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-['Plus_Jakarta_Sans',sans-serif]">
-      {/* Fixed Navigation Sidebar */}
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-['Plus_Jakarta_Sans',sans-serif] flex flex-row min-w-[1024px]">
+      {/* Fixed Navigation Sidebar (Synchronized with PC layout, permanently fixed) */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -858,10 +857,10 @@ export default function App() {
         onOpenUserManagement={() => setIsUserManagementOpen(true)}
         onOpenOwnerAuth={(actionName) => requireOwner(actionName || 'Akses Owner', () => {})}
         onLogoutOwner={handleLogoutOwner}
-        isOpenMobile={isSidebarMobileOpen}
-        onCloseMobile={() => setIsSidebarMobileOpen(false)}
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        isOpenMobile={false}
+        onCloseMobile={() => {}}
+        isCollapsed={false}
+        onToggleCollapse={() => {}}
         hasNewVersion={hasNewVersion}
         onForceRefresh={handleManualSync}
         navOrientation="vertical"
@@ -880,9 +879,9 @@ export default function App() {
         onSelectHpbsSubTab={setHpbsSubTab}
       />
 
-      {/* Main Content Area Column (Permanently Fixed Wide Sidebar on desktop) */}
+      {/* Main Content Area Column (Permanently Fixed Wide Sidebar synced like PC) */}
       <div
-        className="transition-all duration-300 ease-in-out lg:pl-72 flex-1 flex flex-col min-w-0 overflow-x-hidden min-h-screen"
+        className="flex-1 flex flex-col min-w-0 min-h-screen"
       >
         {/* Top Header */}
         <TopHeader
@@ -897,7 +896,7 @@ export default function App() {
           syncMessage={syncMessage}
           onOpenOwnerAuth={(actionName) => requireOwner(actionName || 'Akses Owner', () => {})}
           onLogoutOwner={handleLogoutOwner}
-          onToggleSidebarMobile={() => setIsSidebarMobileOpen(!isSidebarMobileOpen)}
+          onToggleSidebarMobile={() => {}}
           navOrientation="vertical"
           onToggleOrientation={() => {}}
           onOpenAddMonth={() => requireOwner('Tambah Bulan', () => setModalState({ isOpen: true, mode: 'add_month' }))}

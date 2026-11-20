@@ -184,18 +184,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 sm:px-5 lg:px-8 py-2.5 shadow-2xs">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
-        {/* Left Side: Mobile toggle & Breadcrumb Title */}
+        {/* Left Side: Breadcrumb Title */}
         <div className="flex items-center gap-2 sm:gap-3">
-          <button
-            type="button"
-            onClick={onToggleSidebarMobile}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl lg:hidden cursor-pointer border border-slate-200 shadow-2xs shrink-0"
-            title="Buka Menu Vertikal Lengkap"
-          >
-            <Menu className="w-4 h-4 text-emerald-700" />
-            <span className="text-xs font-bold text-slate-800">Menu</span>
-          </button>
-
           <div className="flex items-center gap-2 overflow-hidden">
             <div className="p-1.5 bg-slate-100 rounded-lg text-slate-700 shrink-0">
               <Icon className={`w-4 h-4 ${breadcrumb.iconColor}`} />
