@@ -126,6 +126,10 @@ export interface CommodityStabilityAnalysis {
   volatility: number; // average absolute deviation from 100 (|RH - 100|)
   stabilityLevel: StabilityLevel;
   stableMonthsCount: number; // count where 99.5 <= RH <= 100.5
+  changedRhCount: number; // Berapa kali ada RH yang mengalami perubahan (nilai RH !== 100)
+  changedRhPercentage: number; // Persentase periode survei di mana RH !== 100
+  upRhCount: number; // Frekuensi periode di mana RH > 100 (harga naik)
+  downRhCount: number; // Frekuensi periode di mana RH < 100 (harga turun)
   totalMonths: number;
   trend: 'STABIL' | 'CENDERUNG_NAIK' | 'CENDERUNG_TURUN';
 }

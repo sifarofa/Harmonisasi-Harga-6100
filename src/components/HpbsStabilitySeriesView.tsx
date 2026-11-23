@@ -48,7 +48,9 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
   const [selectedRegionId, setSelectedRegionId] = useState<string>(
     initialRegionId || 'sambas'
   );
-  const [stabilityFilter, setStabilityFilter] = useState<'ALL' | StabilityLevel>('ALL');
+  const [stabilityFilter, setStabilityFilter] = useState<
+    'ALL' | StabilityLevel | 'CHANGED' | 'NO_CHANGE'
+  >('ALL');
   const [questionnaireFilter, setQuestionnaireFilter] = useState<'ALL' | HpbsQuestionnaireType>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCommodityCode, setSelectedCommodityCode] = useState<string | null>(null);
@@ -71,9 +73,14 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
   // Filtered analyses
   const filteredAnalyses = useMemo(() => {
     return analyses.filter((a) => {
-      if (stabilityFilter !== 'ALL' && a.stabilityLevel !== stabilityFilter) {
+      if (stabilityFilter === 'CHANGED') {
+        if (a.changedRhCount === 0) return false;
+      } else if (stabilityFilter === 'NO_CHANGE') {
+        if (a.changedRhCount > 0) return false;
+      } else if (stabilityFilter !== 'ALL' && a.stabilityLevel !== stabilityFilter) {
         return false;
       }
+
       if (questionnaireFilter !== 'ALL' && a.kuesioner !== questionnaireFilter) {
         return false;
       }
@@ -99,6 +106,7 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
         key === 'volatility' ||
         key === 'averageRh' ||
         key === 'stabilityLevel' ||
+        key === 'changedRhCount' ||
         key.startsWith('period_')
       ) {
         setSortDirection('desc');
@@ -129,6 +137,8 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
           FLUKTUATIF: 1,
         };
         diff = score[a.stabilityLevel] - score[b.stabilityLevel];
+      } else if (sortKey === 'changedRhCount') {
+        diff = a.changedRhCount - b.changedRhCount;
       } else if (sortKey === 'volatility') {
         diff = a.volatility - b.volatility;
       } else if (sortKey === 'averageRh') {
@@ -156,16 +166,27 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
   // Overall metrics summary
   const summaryMetrics = useMemo(() => {
     const total = analyses.length;
-    if (total === 0) return { total: 0, sangatStabil: 0, moderat: 0, fluktuatif: 0, avgVolatility: 0 };
+    if (total === 0)
+      return {
+        total: 0,
+        sangatStabil: 0,
+        moderat: 0,
+        fluktuatif: 0,
+        avgVolatility: 0,
+        withChanges: 0,
+        always100: 0,
+      };
 
     const sangatStabil = analyses.filter((a) => a.stabilityLevel === 'SANGAT_STABIL').length;
     const moderat = analyses.filter((a) => a.stabilityLevel === 'MODERAT').length;
     const fluktuatif = analyses.filter((a) => a.stabilityLevel === 'FLUKTUATIF').length;
+    const withChanges = analyses.filter((a) => a.changedRhCount > 0).length;
+    const always100 = analyses.filter((a) => a.changedRhCount === 0).length;
     const avgVolatility = parseFloat(
       (analyses.reduce((acc, a) => acc + a.volatility, 0) / total).toFixed(2)
     );
 
-    return { total, sangatStabil, moderat, fluktuatif, avgVolatility };
+    return { total, sangatStabil, moderat, fluktuatif, avgVolatility, withChanges, always100 };
   }, [analyses]);
 
   // Sorted periods for column headers
@@ -353,6 +374,8 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
                 <option value="kode_asc">Kode Komoditas (01 → 99)</option>
                 <option value="komoditas_asc">Nama Komoditas (A → Z)</option>
                 <option value="komoditas_desc">Nama Komoditas (Z → A)</option>
+                <option value="changedRhCount_desc">Frekuensi Perubahan Terbanyak (RH ≠ 100)</option>
+                <option value="changedRhCount_asc">Frekuensi Perubahan Terkecil (Selalu RH = 100)</option>
                 <option value="volatility_asc">Paling Stabil (Volatilitas Terendah)</option>
                 <option value="volatility_desc">Paling Fluktuatif (Volatilitas Tertinggi)</option>
                 <option value="averageRh_desc">Rata-rata RH Tertinggi</option>
@@ -548,6 +571,30 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
                   </div>
                 </th>
 
+                {/* Frekuensi Perubahan RH (RH ≠ 100) */}
+                <th
+                  onClick={() => handleSort('changedRhCount')}
+                  className={`py-2.5 px-3 text-center select-none cursor-pointer transition-colors ${
+                    sortKey === 'changedRhCount'
+                      ? 'bg-emerald-100/90 text-emerald-950 font-bold'
+                      : 'hover:bg-slate-200/90'
+                  }`}
+                  title="Klik untuk mengurutkan frekuensi periode di mana nilai RH mengalami perubahan (RH ≠ 100)"
+                >
+                  <div className="inline-flex items-center justify-center gap-1">
+                    <span>Perubahan RH (≠ 100)</span>
+                    {sortKey === 'changedRhCount' ? (
+                      sortDirection === 'asc' ? (
+                        <ArrowUp className="w-3 h-3 text-emerald-700" />
+                      ) : (
+                        <ArrowDown className="w-3 h-3 text-emerald-700" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="w-2.5 h-2.5 text-slate-400 opacity-60" />
+                    )}
+                  </div>
+                </th>
+
                 {/* Volatilitas */}
                 <th
                   onClick={() => handleSort('volatility')}
@@ -655,7 +702,7 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
             <tbody className="divide-y divide-slate-100">
               {paginatedAnalyses.length === 0 ? (
                 <tr>
-                  <td colSpan={7 + sortedPeriods.length} className="py-8 text-center text-slate-400">
+                  <td colSpan={8 + sortedPeriods.length} className="py-8 text-center text-slate-400">
                     Tidak ada komoditas yang sesuai dengan filter pencarian.
                   </td>
                 </tr>
@@ -718,6 +765,48 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
                             ? 'Moderat'
                             : 'Fluktuatif'}
                         </span>
+                      </td>
+
+                      {/* Frekuensi Perubahan RH (RH ≠ 100) */}
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                        <div className="inline-flex flex-col items-center">
+                          <div className="flex items-center gap-1">
+                            <span
+                              className={`font-mono font-bold text-xs ${
+                                item.changedRhCount === 0
+                                  ? 'text-emerald-700'
+                                  : item.changedRhCount >= item.totalMonths * 0.75
+                                  ? 'text-red-700 font-extrabold'
+                                  : 'text-slate-800'
+                              }`}
+                            >
+                              {item.changedRhCount}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              / {item.totalMonths} bln
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 mt-0.5 text-[9px]">
+                            {item.changedRhCount === 0 ? (
+                              <span className="text-emerald-700 font-medium bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200/60">
+                                Selalu 100
+                              </span>
+                            ) : (
+                              <span
+                                className={`font-mono font-medium ${
+                                  item.changedRhPercentage >= 75
+                                    ? 'text-red-600 font-bold'
+                                    : item.changedRhPercentage >= 50
+                                    ? 'text-amber-700'
+                                    : 'text-slate-500'
+                                }`}
+                                title={`Naik (>100): ${item.upRhCount}x, Turun (<100): ${item.downRhCount}x`}
+                              >
+                                {item.changedRhPercentage}% ({item.upRhCount > 0 ? `↑${item.upRhCount}` : ''}{item.upRhCount > 0 && item.downRhCount > 0 ? ' ' : ''}{item.downRhCount > 0 ? `↓${item.downRhCount}` : ''})
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </td>
 
                       {/* Volatilitas */}
@@ -808,6 +897,8 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
           itemLabel="komoditas"
           quickViews={[
             { id: 'ALL', label: 'Semua Komoditas', count: summaryMetrics.total },
+            { id: 'CHANGED', label: 'Ada Perubahan (RH ≠ 100)', count: summaryMetrics.withChanges },
+            { id: 'NO_CHANGE', label: 'Selalu Tetap (RH = 100)', count: summaryMetrics.always100 },
             { id: 'SANGAT_STABIL', label: 'Sangat Stabil', count: summaryMetrics.sangatStabil },
             { id: 'MODERAT', label: 'Moderat', count: summaryMetrics.moderat },
             { id: 'FLUKTUATIF', label: 'Fluktuatif', count: summaryMetrics.fluktuatif },
@@ -883,7 +974,12 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
             })}
           </div>
 
-          <div className="flex flex-wrap items-center justify-between text-xs text-slate-300 pt-2 border-t border-slate-800 font-mono">
+          <div className="flex flex-wrap items-center justify-between text-xs text-slate-300 pt-2 border-t border-slate-800 font-mono gap-2">
+            <span>
+              Perubahan RH (≠ 100): <strong className="text-purple-300">{selectedCommodityDetail.changedRhCount}</strong> dari {selectedCommodityDetail.totalMonths} bulan ({selectedCommodityDetail.changedRhPercentage}%) &bull;{' '}
+              <span className="text-red-400 font-bold">↑{selectedCommodityDetail.upRhCount}</span>{' / '}
+              <span className="text-cyan-400 font-bold">↓{selectedCommodityDetail.downRhCount}</span>
+            </span>
             <span>
               Tingkat Volatilitas: <strong className="text-amber-400">{selectedCommodityDetail.volatility.toFixed(2)}</strong> (
               {selectedCommodityDetail.stabilityLevel})

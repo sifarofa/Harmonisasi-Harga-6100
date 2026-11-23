@@ -1954,6 +1954,15 @@ export function computeStabilityAnalysis(
     // Stable months count: where |RH - 100| <= 0.5% (99.50 - 100.50)
     const stableMonthsCount = rhValues.filter((v) => Math.abs(v - 100) <= 0.5).length;
 
+    // Frekuensi berapa kali ada RH yang mengalami perubahan (nilai RH !== 100)
+    // Toleransi numerik 0.001 untuk presisi float
+    const changedRhCount = rhValues.filter((v) => Math.abs(v - 100) > 0.001).length;
+    const changedRhPercentage = series.length > 0
+      ? parseFloat(((changedRhCount / series.length) * 100).toFixed(1))
+      : 0;
+    const upRhCount = rhValues.filter((v) => v > 100.001).length;
+    const downRhCount = rhValues.filter((v) => v < 99.999).length;
+
     // Stability classification:
     // SANGAT_STABIL: volatility < 1.0 (fluctuates less than 1% on average)
     // MODERAT: volatility between 1.0 and 3.5
@@ -1992,6 +2001,10 @@ export function computeStabilityAnalysis(
       volatility,
       stabilityLevel,
       stableMonthsCount,
+      changedRhCount,
+      changedRhPercentage,
+      upRhCount,
+      downRhCount,
       totalMonths: series.length,
       trend,
     });
@@ -2034,6 +2047,8 @@ export function exportHpbsStabilityToExcel(
     'Kuesioner',
     'Satuan',
     'Klasifikasi Stabilitas',
+    'Perubahan RH (RH ≠ 100)',
+    'Persentase Periode Berubah (%)',
     'Tingkat Volatilitas (|RH-100|)',
     'Rata-rata RH',
     'Min RH',
@@ -2058,6 +2073,8 @@ export function exportHpbsStabilityToExcel(
       a.kuesioner,
       a.satuanStandar,
       stabLabel,
+      `${a.changedRhCount}/${a.totalMonths}`,
+      `${a.changedRhPercentage}%`,
       a.volatility,
       a.averageRh,
       a.minRh,

@@ -1218,9 +1218,8 @@ export default function App() {
         activeTab={activeTab}
         onSelectTab={(tab) => {
           setActiveTab(tab);
-          setIsSidebarMobileOpen(false);
         }}
-        onOpenSidebar={() => setIsSidebarMobileOpen(true)}
+        onOpenSidebar={() => {}}
         hasNewVersion={hasNewVersion}
         onForceRefresh={handleManualSync}
       />
