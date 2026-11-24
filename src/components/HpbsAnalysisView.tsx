@@ -50,6 +50,7 @@ import {
   downloadHpbsTemplateExcel,
   exportHpbsAnalysisToExcel,
   exportHpbsMatriksToExcel,
+  exportHpbsRespondenToExcel,
   filterValidHpbsRecords,
   resetRespondentPrice,
 } from '../utils/hpbsAnalysis';
@@ -608,6 +609,45 @@ export const HpbsAnalysisView: React.FC<HpbsAnalysisViewProps> = ({
 
     setAdjustmentToast(
       `✓ Berhasil mengekspor Matriks 14 Kab/Kota (${dataToExport.length} komoditas) ke Excel!`
+    );
+    setTimeout(() => setAdjustmentToast(null), 4000);
+  };
+
+  // Export Data Rinci Responden Pedagang to Excel (.xlsx)
+  const handleExportResponden = (filteredOnly: boolean = false) => {
+    const dataToExport = filteredOnly ? quickFilteredRecords : cleanRecords;
+    if (dataToExport.length === 0) {
+      setAdjustmentToast('Tidak ada data responden untuk diekspor.');
+      setTimeout(() => setAdjustmentToast(null), 3000);
+      return;
+    }
+
+    const currentPeriod = effectivePeriods.find((p) => p.id === dataset.activePeriodId);
+    const periodTitle = currentPeriod ? currentPeriod.label : dataset.periodTitle || 'HPBS Kalbar';
+
+    const selectedRegionObj = selectedRegionId !== 'all' ? DEFAULT_REGIONS.find((r) => r.id === selectedRegionId) : undefined;
+    const regionName = filteredOnly && selectedRegionObj ? selectedRegionObj.name : 'Semua Kab/Kota (Se-Kalbar)';
+
+    const filterParts: string[] = [];
+    if (filteredOnly) {
+      if (selectedRegionObj) filterParts.push(`Wilayah: ${selectedRegionObj.name}`);
+      if (searchQuery.trim()) filterParts.push(`Pencarian: "${searchQuery}"`);
+      if (selectedQuestionnaire !== 'ALL') filterParts.push(`Kuesioner: ${selectedQuestionnaire}`);
+      if (selectedStatus !== 'ALL') filterParts.push(`Status: ${selectedStatus}`);
+      if (recordsQuickView !== 'all') {
+        const qView = recordsQuickViews.find((v) => v.id === recordsQuickView);
+        if (qView) filterParts.push(`Kategori: ${qView.label}`);
+      }
+    }
+
+    exportHpbsRespondenToExcel(dataToExport, {
+      periodTitle,
+      selectedRegionName: regionName,
+      filterDescription: filterParts.length > 0 ? filterParts.join(' | ') : 'Semua Data Pencacahan',
+    });
+
+    setAdjustmentToast(
+      `✓ Berhasil mengekspor data responden (${dataToExport.length} baris pencacahan) ke Excel!`
     );
     setTimeout(() => setAdjustmentToast(null), 4000);
   };
@@ -1516,7 +1556,7 @@ export const HpbsAnalysisView: React.FC<HpbsAnalysisViewProps> = ({
       {/* VIEW C: DETAIL RESPONDEN (DATA MENTAH PERSIS SEPERTI FORMAT V-HPBS DI IMAGE) */}
       {activeSubTab === 'responden_detail' && (
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <Users className="w-4 h-4 text-emerald-600" />
@@ -1526,8 +1566,34 @@ export const HpbsAnalysisView: React.FC<HpbsAnalysisViewProps> = ({
                 Memuat data harga M1/M2 bulan sebelumnya (N-1), bulan berjalan (N), rata-rata geometri, dan catatan perubahan harga.
               </p>
             </div>
-            <div className="text-xs text-slate-500 font-medium">
-              Total {quickFilteredRecords.length} baris data pencacahan
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500 font-medium hidden md:inline">
+                Total <strong className="text-slate-800">{quickFilteredRecords.length}</strong> baris data pencacahan
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  id="btn-export-responden-all"
+                  onClick={() => handleExportResponden(false)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-100/90 hover:bg-emerald-200 border border-emerald-300 rounded-xl transition-all shadow-2xs cursor-pointer active:scale-95"
+                  title="Ekspor seluruh data pencacahan responden pedagang ke file Excel (.xlsx)"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-700" />
+                  <span>Ekspor Excel Responden</span>
+                </button>
+                {quickFilteredRecords.length !== cleanRecords.length && (
+                  <button
+                    type="button"
+                    id="btn-export-responden-filtered"
+                    onClick={() => handleExportResponden(true)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl transition-all shadow-2xs cursor-pointer"
+                    title={`Ekspor hanya ${quickFilteredRecords.length} baris data pencacahan yang sesuai filter saat ini`}
+                  >
+                    <Filter className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Filter ({quickFilteredRecords.length})</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1925,6 +1991,26 @@ export const HpbsAnalysisView: React.FC<HpbsAnalysisViewProps> = ({
             pageSizeOptions={[25, 50, 100, 250, 'all']}
             itemLabel="baris pencacahan"
           />
+
+          {/* Action Bar & Export Footer for Responden Detail */}
+          <div className="px-4 py-3 bg-slate-50/80 border-t border-slate-200/90 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-slate-500 font-medium">
+              <Download className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                Unduh rekapitulasi data responden pedagang (format resmi BPS V-HPBS) dalam format spreadsheet Excel
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleExportResponden(false)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl transition-colors shadow-2xs cursor-pointer active:scale-95"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Unduh File Excel Responden ({cleanRecords.length} Baris)</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

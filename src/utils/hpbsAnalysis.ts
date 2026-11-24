@@ -1627,6 +1627,316 @@ export function exportHpbsMatriksToExcel(
 }
 
 /**
+ * Exports the raw respondent monitoring records (Data Rinci Responden Pedagang V-HPBS)
+ * to a comprehensive Excel (.xlsx) workbook with:
+ * - Sheet 1: Rincian Responden Pedagang (All respondent price entries, geo means, RH, status, and notes)
+ * - Sheet 2: Ringkasan Per Komoditas (Commodity aggregates based on the exported records)
+ * - Sheet 3: Ringkasan Per Wilayah (Regional summary of respondent counts and averages)
+ */
+export function exportHpbsRespondenToExcel(
+  records: HpbsRespondentRecord[],
+  options?: {
+    periodTitle?: string;
+    selectedRegionName?: string;
+    filterDescription?: string;
+  }
+) {
+  const wb = XLSX.utils.book_new();
+  const periodLabel = options?.periodTitle || 'Bulan Berjalan vs N-1';
+  const regionLabel = options?.selectedRegionName || 'Semua Kabupaten / Kota';
+  const filterDesc = options?.filterDescription || 'Semua Data Pencacahan';
+
+  // -------------------------------------------------------------------------
+  // Sheet 1: Rincian Responden Pedagang (Format Kuesioner V-HPBS)
+  // -------------------------------------------------------------------------
+  const sheet1TitleRows: any[][] = [
+    ['DATA RINCI PENCACAHAN RESPONDEN PEDAGANG BESAR (V-HPBS)'],
+    ['Sistem Evaluasi Statistik Harga (SEHARGA) - BPS Provinsi Kalimantan Barat'],
+    [`Periode Analisis: ${periodLabel}`],
+    [`Cakupan Wilayah: ${regionLabel}`],
+    [`Kriteria Filter: ${filterDesc}`],
+    [
+      `Dicetak pada: ${new Date().toLocaleDateString('id-ID', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })} WIB | Total Data: ${records.length} Baris Pencacahan`,
+    ],
+    ['Keterangan Nilai: RH > 100 (Harga Naik) | RH < 100 (Harga Turun) | RH = 100 (Harga Stabil)'],
+    [],
+  ];
+
+  const sheet1Header = [
+    'No',
+    'Kode Kab/Kota',
+    'Kabupaten / Kota',
+    'Kode Responden',
+    'Nama Responden / Pedagang',
+    'Kode Komoditas',
+    'Nama Komoditas',
+    'Kode Kualitas',
+    'Kualitas / Spesifikasi',
+    'Satuan Standar',
+    'Kuesioner',
+    'Harga M1 (N-1)',
+    'Harga M2 (N-1)',
+    'Harga M1 (N)',
+    'Harga M2 (N)',
+    'RH M1 (%)',
+    'RH M2 (%)',
+    'Rata2 Geo (N-1)',
+    'Rata2 Geo (N)',
+    'Relatif Harga (RH)',
+    'Perubahan (%)',
+    'Status Harga',
+    'Catatan Perubahan M1',
+    'Catatan Perubahan M2',
+    'Status Penyesuaian',
+    'Catatan Penyesuaian',
+  ];
+
+  const sheet1DataRows = records.map((r, idx) => {
+    const kabCode = r.kodeKabKota || DEFAULT_REGIONS.find((reg) => reg.id === r.kabKotaId)?.code || '-';
+    const kabName = r.kabKotaName || DEFAULT_REGIONS.find((reg) => reg.id === r.kabKotaId)?.name || '-';
+    const respCode = r.kodeResponden || '-';
+    const pctChange = r.geoPrev > 0 ? Number((((r.geoCurr - r.geoPrev) / r.geoPrev) * 100).toFixed(2)) : 0;
+
+    return [
+      idx + 1,
+      kabCode,
+      kabName,
+      respCode,
+      r.responden,
+      r.kodeKomoditas,
+      r.komoditas,
+      r.kodeKualitas || `${r.kodeKomoditas}001`,
+      r.kualitas || `${r.komoditas} (${r.satuanStandar})`,
+      r.satuanStandar || '1KG',
+      r.kuesioner || 'V-HPBS.1',
+      r.m1Prev,
+      r.m2Prev || 0,
+      r.m1Curr,
+      r.m2Curr || 0,
+      r.rhM1 || 0,
+      r.rhM2 || 0,
+      r.geoPrev,
+      r.geoCurr,
+      r.rh,
+      pctChange,
+      r.status,
+      r.catatanM1 || '-',
+      r.catatanM2 || '-',
+      r.isAdjusted ? 'Disesuaikan' : 'Asli',
+      r.adjustmentNote || '-',
+    ];
+  });
+
+  const wsSheet1 = XLSX.utils.aoa_to_sheet([
+    ...sheet1TitleRows,
+    sheet1Header,
+    ...sheet1DataRows,
+  ]);
+
+  wsSheet1['!cols'] = [
+    { wch: 6 },  // No
+    { wch: 14 }, // Kode Kab/Kota
+    { wch: 22 }, // Kabupaten / Kota
+    { wch: 16 }, // Kode Responden
+    { wch: 34 }, // Responden
+    { wch: 16 }, // Kode Komoditas
+    { wch: 30 }, // Komoditas
+    { wch: 16 }, // Kode Kualitas
+    { wch: 35 }, // Kualitas
+    { wch: 14 }, // Satuan
+    { wch: 14 }, // Kuesioner
+    { wch: 14 }, // M1 N-1
+    { wch: 14 }, // M2 N-1
+    { wch: 14 }, // M1 N
+    { wch: 14 }, // M2 N
+    { wch: 12 }, // RH M1
+    { wch: 12 }, // RH M2
+    { wch: 16 }, // Geo N-1
+    { wch: 16 }, // Geo N
+    { wch: 14 }, // RH Final
+    { wch: 14 }, // Perubahan %
+    { wch: 12 }, // Status
+    { wch: 30 }, // Catatan M1
+    { wch: 30 }, // Catatan M2
+    { wch: 18 }, // Status Penyesuaian
+    { wch: 32 }, // Catatan Penyesuaian
+  ];
+
+  XLSX.utils.book_append_sheet(wb, wsSheet1, 'Data Responden V-HPBS');
+
+  // -------------------------------------------------------------------------
+  // Sheet 2: Ringkasan Rekapitulasi per Komoditas dari Data Responden
+  // -------------------------------------------------------------------------
+  const commodityGroups = new Map<string, HpbsRespondentRecord[]>();
+  records.forEach((r) => {
+    const list = commodityGroups.get(r.kodeKomoditas) || [];
+    list.push(r);
+    commodityGroups.set(r.kodeKomoditas, list);
+  });
+
+  const sheet2TitleRows: any[][] = [
+    ['RINGKASAN KOMODITAS DARI PENCACAHAN RESPONDEN'],
+    [`Periode Analisis: ${periodLabel} | Cakupan: ${regionLabel}`],
+    [],
+  ];
+
+  const sheet2Header = [
+    'No',
+    'Kode Komoditas',
+    'Nama Komoditas',
+    'Kuesioner',
+    'Satuan Standar',
+    'Jumlah Responden',
+    'Rata-rata Harga N-1 (Geo)',
+    'Rata-rata Harga N (Geo)',
+    'Relatif Harga (RH)',
+    'Status',
+    'Responden Naik',
+    'Responden Turun',
+    'Responden Stabil',
+  ];
+
+  const sheet2DataRows: any[][] = [];
+  let cIdx = 1;
+  commodityGroups.forEach((groupRecords, kKomoditas) => {
+    const first = groupRecords[0];
+    const prevs = groupRecords.map((r) => r.geoPrev).filter((p) => p > 0);
+    const currs = groupRecords.map((r) => r.geoCurr).filter((p) => p > 0);
+    const avgPrev = calculateGeometricMean(prevs);
+    const avgCurr = calculateGeometricMean(currs);
+    const rh = avgPrev > 0 ? Number(((avgCurr / avgPrev) * 100).toFixed(2)) : 100;
+    const naik = groupRecords.filter((r) => r.status === 'NAIK').length;
+    const turun = groupRecords.filter((r) => r.status === 'TURUN').length;
+    const stabil = groupRecords.filter((r) => r.status === 'STABIL').length;
+    const status = rh > 100.005 ? 'NAIK' : rh < 99.995 ? 'TURUN' : 'STABIL';
+
+    sheet2DataRows.push([
+      cIdx++,
+      kKomoditas,
+      first.komoditas,
+      first.kuesioner,
+      first.satuanStandar,
+      groupRecords.length,
+      Number(avgPrev.toFixed(2)),
+      Number(avgCurr.toFixed(2)),
+      rh,
+      status,
+      naik,
+      turun,
+      stabil,
+    ]);
+  });
+
+  const wsSheet2 = XLSX.utils.aoa_to_sheet([
+    ...sheet2TitleRows,
+    sheet2Header,
+    ...sheet2DataRows,
+  ]);
+
+  wsSheet2['!cols'] = [
+    { wch: 6 },  // No
+    { wch: 16 }, // Kode Komoditas
+    { wch: 32 }, // Nama Komoditas
+    { wch: 14 }, // Kuesioner
+    { wch: 14 }, // Satuan Standar
+    { wch: 18 }, // Jumlah Responden
+    { wch: 24 }, // Rata2 Harga N-1
+    { wch: 24 }, // Rata2 Harga N
+    { wch: 18 }, // RH
+    { wch: 12 }, // Status
+    { wch: 16 }, // Naik
+    { wch: 16 }, // Turun
+    { wch: 16 }, // Stabil
+  ];
+
+  XLSX.utils.book_append_sheet(wb, wsSheet2, 'Ringkasan Komoditas');
+
+  // -------------------------------------------------------------------------
+  // Sheet 3: Ringkasan Rekapitulasi per Wilayah
+  // -------------------------------------------------------------------------
+  const regionGroups = new Map<string, HpbsRespondentRecord[]>();
+  records.forEach((r) => {
+    const list = regionGroups.get(r.kabKotaId) || [];
+    list.push(r);
+    regionGroups.set(r.kabKotaId, list);
+  });
+
+  const sheet3TitleRows: any[][] = [
+    ['RINGKASAN CAKUPAN WILAYAH DARI PENCACAHAN RESPONDEN'],
+    [`Periode Analisis: ${periodLabel}`],
+    [],
+  ];
+
+  const sheet3Header = [
+    'No',
+    'Kode Wilayah',
+    'Kabupaten / Kota',
+    'Jumlah Responden',
+    'Komoditas Terdata',
+    'Responden Harga Naik',
+    'Responden Harga Turun',
+    'Responden Harga Stabil',
+  ];
+
+  const sheet3DataRows: any[][] = [];
+  let rIdx = 1;
+  regionGroups.forEach((groupRecords, rId) => {
+    const regObj = DEFAULT_REGIONS.find((r) => r.id === rId);
+    const regName = regObj ? regObj.name : rId;
+    const regCode = regObj ? regObj.code : '-';
+    const distinctCommodities = new Set(groupRecords.map((r) => r.kodeKomoditas)).size;
+    const naik = groupRecords.filter((r) => r.status === 'NAIK').length;
+    const turun = groupRecords.filter((r) => r.status === 'TURUN').length;
+    const stabil = groupRecords.filter((r) => r.status === 'STABIL').length;
+
+    sheet3DataRows.push([
+      rIdx++,
+      regCode,
+      regName,
+      groupRecords.length,
+      distinctCommodities,
+      naik,
+      turun,
+      stabil,
+    ]);
+  });
+
+  const wsSheet3 = XLSX.utils.aoa_to_sheet([
+    ...sheet3TitleRows,
+    sheet3Header,
+    ...sheet3DataRows,
+  ]);
+
+  wsSheet3['!cols'] = [
+    { wch: 6 },  // No
+    { wch: 16 }, // Kode Wilayah
+    { wch: 30 }, // Kabupaten / Kota
+    { wch: 18 }, // Jumlah Responden
+    { wch: 20 }, // Komoditas Terdata
+    { wch: 20 }, // Naik
+    { wch: 20 }, // Turun
+    { wch: 20 }, // Stabil
+  ];
+
+  XLSX.utils.book_append_sheet(wb, wsSheet3, 'Ringkasan Wilayah');
+
+  const cleanPeriod = (options?.periodTitle || 'HPBS')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .slice(0, 25);
+  const cleanRegion = (options?.selectedRegionName || 'Semua_Wilayah')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .slice(0, 20);
+  const fileName = `Detail_Responden_V-HPBS_${cleanRegion}_${cleanPeriod}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, fileName);
+}
+
+/**
  * Downloads a pre-filled V-HPBS Excel template matching image.png exactly.
  * If sampleRecords is empty or not provided, it generates authentic Sambas BPS rows.
  */
@@ -1861,20 +2171,24 @@ export function computeStabilityAnalysis(
     });
   });
 
-  // Calculate region name if applicable
-  const targetRegion = regionId ? DEFAULT_REGIONS.find((r) => r.id === regionId) : undefined;
-  const regionName = targetRegion ? targetRegion.name : undefined;
-
-  const results: CommodityStabilityAnalysis[] = [];
-
-  commodityMap.forEach((meta, kodeKomoditas) => {
+  // Helper to compute stability point for a given commodity and scope/region
+  function computeCommodityStability(
+    meta: {
+      kodeKomoditas: string;
+      komoditas: string;
+      kuesioner: HpbsQuestionnaireType;
+      satuanStandar: string;
+    },
+    targetScope: 'kalbar' | 'regional',
+    targetRegionId: string,
+    targetRegionName: string
+  ): CommodityStabilityAnalysis | null {
     const series: CommodityMonthlyPoint[] = [];
 
     sortedPeriods.forEach((period) => {
-      // Filter records
-      let relevantRecords = period.records.filter((r) => r.kodeKomoditas === kodeKomoditas);
-      if (scopeType === 'regional' && regionId) {
-        relevantRecords = relevantRecords.filter((r) => r.kabKotaId === regionId);
+      let relevantRecords = period.records.filter((r) => r.kodeKomoditas === meta.kodeKomoditas);
+      if (targetScope === 'regional') {
+        relevantRecords = relevantRecords.filter((r) => r.kabKotaId === targetRegionId);
       }
 
       if (relevantRecords.length === 0) return;
@@ -1883,15 +2197,14 @@ export function computeStabilityAnalysis(
       let geoPrev = 0;
       let geoCurr = 0;
 
-      if (scopeType === 'regional') {
-        // Geometric mean of respondent RHs or geo mean of prices
+      if (targetScope === 'regional') {
         const prevPrices = relevantRecords.map((r) => r.geoPrev).filter((p) => p > 0);
         const currPrices = relevantRecords.map((r) => r.geoCurr).filter((p) => p > 0);
         geoPrev = calculateGeometricMean(prevPrices);
         geoCurr = calculateGeometricMean(currPrices);
         rh = geoPrev > 0 ? (geoCurr / geoPrev) * 100 : 100;
       } else {
-        // Kalbar aggregate: group by region first, then geometric mean across regions
+        // Kalbar aggregate across regions
         const regionRhList: number[] = [];
         const regionGeoPrevList: number[] = [];
         const regionGeoCurrList: number[] = [];
@@ -1902,8 +2215,7 @@ export function computeStabilityAnalysis(
             const pPrev = calculateGeometricMean(regRecs.map((r) => r.geoPrev).filter((p) => p > 0));
             const pCurr = calculateGeometricMean(regRecs.map((r) => r.geoCurr).filter((p) => p > 0));
             if (pPrev > 0) {
-              const regRh = (pCurr / pPrev) * 100;
-              regionRhList.push(regRh);
+              regionRhList.push((pCurr / pPrev) * 100);
               regionGeoPrevList.push(pPrev);
               regionGeoCurrList.push(pCurr);
             }
@@ -1935,7 +2247,7 @@ export function computeStabilityAnalysis(
       });
     });
 
-    if (series.length === 0) return;
+    if (series.length === 0) return null;
 
     const rhValues = series.map((s) => s.rh);
     const averageRh = parseFloat(
@@ -1944,18 +2256,13 @@ export function computeStabilityAnalysis(
     const minRh = Math.min(...rhValues);
     const maxRh = Math.max(...rhValues);
 
-    // Volatility: average absolute deviation from 100 (|RH - 100|)
     const volatility = parseFloat(
       (
         rhValues.reduce((acc, v) => acc + Math.abs(v - 100), 0) / rhValues.length
       ).toFixed(2)
     );
 
-    // Stable months count: where |RH - 100| <= 0.5% (99.50 - 100.50)
     const stableMonthsCount = rhValues.filter((v) => Math.abs(v - 100) <= 0.5).length;
-
-    // Frekuensi berapa kali ada RH yang mengalami perubahan (nilai RH !== 100)
-    // Toleransi numerik 0.001 untuk presisi float
     const changedRhCount = rhValues.filter((v) => Math.abs(v - 100) > 0.001).length;
     const changedRhPercentage = series.length > 0
       ? parseFloat(((changedRhCount / series.length) * 100).toFixed(1))
@@ -1963,10 +2270,6 @@ export function computeStabilityAnalysis(
     const upRhCount = rhValues.filter((v) => v > 100.001).length;
     const downRhCount = rhValues.filter((v) => v < 99.999).length;
 
-    // Stability classification:
-    // SANGAT_STABIL: volatility < 1.0 (fluctuates less than 1% on average)
-    // MODERAT: volatility between 1.0 and 3.5
-    // FLUKTUATIF: volatility >= 3.5
     let stabilityLevel: StabilityLevel = 'MODERAT';
     if (volatility < 1.0) {
       stabilityLevel = 'SANGAT_STABIL';
@@ -1974,7 +2277,6 @@ export function computeStabilityAnalysis(
       stabilityLevel = 'FLUKTUATIF';
     }
 
-    // Trend based on last 2-3 months
     let trend: 'STABIL' | 'CENDERUNG_NAIK' | 'CENDERUNG_TURUN' = 'STABIL';
     if (series.length >= 2) {
       const lastPoint = series[series.length - 1];
@@ -1986,14 +2288,14 @@ export function computeStabilityAnalysis(
       }
     }
 
-    results.push({
-      kodeKomoditas,
+    return {
+      kodeKomoditas: meta.kodeKomoditas,
       komoditas: meta.komoditas,
       kuesioner: meta.kuesioner,
       satuanStandar: meta.satuanStandar,
-      scopeType,
-      regionId,
-      regionName,
+      scopeType: targetScope,
+      regionId: targetRegionId,
+      regionName: targetRegionName,
       series,
       averageRh,
       minRh,
@@ -2007,20 +2309,46 @@ export function computeStabilityAnalysis(
       downRhCount,
       totalMonths: series.length,
       trend,
-    });
-  });
-
-  // Sort by stability (SANGAT_STABIL first, then lowest volatility)
-  return results.sort((a, b) => {
-    const order: Record<StabilityLevel, number> = {
-      SANGAT_STABIL: 1,
-      MODERAT: 2,
-      FLUKTUATIF: 3,
     };
-    if (order[a.stabilityLevel] !== order[b.stabilityLevel]) {
-      return order[a.stabilityLevel] - order[b.stabilityLevel];
-    }
-    return a.volatility - b.volatility;
+  }
+
+  const results: CommodityStabilityAnalysis[] = [];
+  const isKalbarOnly = regionId === 'kalbar' || scopeType === 'kalbar';
+  const isAll = !isKalbarOnly && (!regionId || regionId === 'all');
+
+  if (isKalbarOnly) {
+    // 1. Murni Agregat Se-Kalbar: tampilkan data agregat provinsi untuk setiap komoditas
+    commodityMap.forEach((meta) => {
+      const aggItem = computeCommodityStability(meta, 'kalbar', 'kalbar', 'Agregat Se-Kalbar');
+      if (aggItem) results.push(aggItem);
+    });
+  } else if (isAll) {
+    // 2. Semua Kab/Kota: tampilkan komoditas dari 14 Kab/Kota (Sambas, Bengkayang, dll.) tanpa disisipi baris agregat
+    commodityMap.forEach((meta) => {
+      DEFAULT_REGIONS.forEach((reg) => {
+        const regItem = computeCommodityStability(meta, 'regional', reg.id, reg.name);
+        if (regItem) results.push(regItem);
+      });
+    });
+  } else {
+    // 3. Kabupaten/Kota spesifik yang dipilih (misal Sambas atau Bengkayang): murni komoditas wilayah tersebut
+    const targetRegion = DEFAULT_REGIONS.find((r) => r.id === regionId);
+    const regName = targetRegion ? targetRegion.name : regionId;
+    commodityMap.forEach((meta) => {
+      const regItem = computeCommodityStability(meta, 'regional', regionId, regName);
+      if (regItem) {
+        results.push(regItem);
+      }
+    });
+  }
+
+  // Pengurutan bawaan: kelompokkan per komoditas, dahulukan Agregat Se-Kalbar, lalu abjad wilayah
+  return results.sort((a, b) => {
+    const cDiff = a.komoditas.localeCompare(b.komoditas, 'id');
+    if (cDiff !== 0) return cDiff;
+    if (a.scopeType === 'kalbar' && b.scopeType !== 'kalbar') return -1;
+    if (a.scopeType !== 'kalbar' && b.scopeType === 'kalbar') return 1;
+    return (a.regionName || '').localeCompare(b.regionName || '', 'id');
   });
 }
 
@@ -2044,6 +2372,7 @@ export function exportHpbsStabilityToExcel(
   const headers = [
     'Kode',
     'Komoditas',
+    'Wilayah / Cakupan',
     'Kuesioner',
     'Satuan',
     'Klasifikasi Stabilitas',
@@ -2070,6 +2399,7 @@ export function exportHpbsStabilityToExcel(
     return [
       a.kodeKomoditas,
       a.komoditas,
+      a.regionName || (a.scopeType === 'kalbar' ? 'Agregat Se-Kalbar' : '-'),
       a.kuesioner,
       a.satuanStandar,
       stabLabel,

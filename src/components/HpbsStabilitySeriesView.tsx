@@ -43,36 +43,80 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
   initialRegionId,
 }) => {
   const [scopeType, setScopeType] = useState<'kalbar' | 'regional'>(
-    initialRegionId ? 'regional' : 'kalbar'
+    initialRegionId && initialRegionId !== 'all' ? 'regional' : 'kalbar'
   );
   const [selectedRegionId, setSelectedRegionId] = useState<string>(
-    initialRegionId || 'sambas'
+    initialRegionId || 'all'
   );
+  const [commodityFilter, setCommodityFilter] = useState<string>('ALL');
   const [stabilityFilter, setStabilityFilter] = useState<
     'ALL' | StabilityLevel | 'CHANGED' | 'NO_CHANGE'
   >('ALL');
   const [questionnaireFilter, setQuestionnaireFilter] = useState<'ALL' | HpbsQuestionnaireType>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [selectedCommodityCode, setSelectedCommodityCode] = useState<string | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
   // Pagination and sorting states
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number | 'all'>(15);
-  const [sortKey, setSortKey] = useState<string>('kode');
+  const [sortKey, setSortKey] = useState<string>('komoditas');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  // Extract all distinct commodities across all periods & regions
+  const allDistinctCommodities = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        kodeKomoditas: string;
+        komoditas: string;
+        kuesioner: HpbsQuestionnaireType;
+        satuanStandar: string;
+      }
+    >();
+    const regionTracker = new Map<string, Set<string>>();
+
+    periods.forEach((p) => {
+      p.records.forEach((r) => {
+        if (!map.has(r.kodeKomoditas)) {
+          map.set(r.kodeKomoditas, {
+            kodeKomoditas: r.kodeKomoditas,
+            komoditas: r.komoditas,
+            kuesioner: r.kuesioner,
+            satuanStandar: r.satuanStandar,
+          });
+          regionTracker.set(r.kodeKomoditas, new Set());
+        }
+        if (r.kabKotaId) {
+          regionTracker.get(r.kodeKomoditas)?.add(r.kabKotaId);
+        }
+      });
+    });
+
+    const list = Array.from(map.values()).map((c) => ({
+      ...c,
+      regionCount: regionTracker.get(c.kodeKomoditas)?.size || 0,
+    }));
+
+    return list.sort((a, b) => a.komoditas.localeCompare(b.komoditas, 'id'));
+  }, [periods]);
 
   // Compute stability analysis for chosen scope
   const analyses = useMemo(() => {
     return computeStabilityAnalysis(
       periods,
       scopeType,
-      scopeType === 'regional' ? selectedRegionId : undefined
+      selectedRegionId
     );
   }, [periods, scopeType, selectedRegionId]);
 
   // Filtered analyses
   const filteredAnalyses = useMemo(() => {
     return analyses.filter((a) => {
+      // Filter Komoditas Spesifik (dari dropdown komoditas seluruh kab/kota)
+      if (commodityFilter !== 'ALL' && a.kodeKomoditas !== commodityFilter) {
+        return false;
+      }
+
       if (stabilityFilter === 'CHANGED') {
         if (a.changedRhCount === 0) return false;
       } else if (stabilityFilter === 'NO_CHANGE') {
@@ -88,12 +132,13 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
         const q = searchQuery.toLowerCase();
         return (
           a.komoditas.toLowerCase().includes(q) ||
-          a.kodeKomoditas.toLowerCase().includes(q)
+          a.kodeKomoditas.toLowerCase().includes(q) ||
+          (a.regionName || '').toLowerCase().includes(q)
         );
       }
       return true;
     });
-  }, [analyses, stabilityFilter, questionnaireFilter, searchQuery]);
+  }, [analyses, commodityFilter, stabilityFilter, questionnaireFilter, searchQuery]);
 
   // Sorting handler
   const handleSort = (key: string) => {
@@ -124,8 +169,22 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
       let diff = 0;
       if (sortKey === 'komoditas') {
         diff = a.komoditas.localeCompare(b.komoditas, 'id');
+        if (diff === 0) {
+          if (a.scopeType === 'kalbar' && b.scopeType !== 'kalbar') diff = -1;
+          else if (a.scopeType !== 'kalbar' && b.scopeType === 'kalbar') diff = 1;
+          else diff = (a.regionName || '').localeCompare(b.regionName || '', 'id');
+        }
+      } else if (sortKey === 'wilayah') {
+        if (a.scopeType === 'kalbar' && b.scopeType !== 'kalbar') diff = -1;
+        else if (a.scopeType !== 'kalbar' && b.scopeType === 'kalbar') diff = 1;
+        else diff = (a.regionName || '').localeCompare(b.regionName || '', 'id');
       } else if (sortKey === 'kode') {
         diff = a.kodeKomoditas.localeCompare(b.kodeKomoditas);
+        if (diff === 0) {
+          if (a.scopeType === 'kalbar' && b.scopeType !== 'kalbar') diff = -1;
+          else if (a.scopeType !== 'kalbar' && b.scopeType === 'kalbar') diff = 1;
+          else diff = (a.regionName || '').localeCompare(b.regionName || '', 'id');
+        }
       } else if (sortKey === 'kuesioner') {
         diff = a.kuesioner.localeCompare(b.kuesioner);
       } else if (sortKey === 'satuan') {
@@ -195,14 +254,19 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
   }, [periods]);
 
   const activeRegionName = useMemo(() => {
-    if (scopeType === 'kalbar') return 'Agregat Se-Kalimantan Barat';
+    if (selectedRegionId === 'kalbar' || scopeType === 'kalbar') return 'Agregat Se-Kalbar';
+    if (selectedRegionId === 'all') return 'Semua Kab/Kota (14 Wilayah)';
     return DEFAULT_REGIONS.find((r) => r.id === selectedRegionId)?.name || 'Kabupaten/Kota';
   }, [scopeType, selectedRegionId]);
 
   const selectedCommodityDetail = useMemo(() => {
-    if (!selectedCommodityCode) return null;
-    return analyses.find((a) => a.kodeKomoditas === selectedCommodityCode) || null;
-  }, [analyses, selectedCommodityCode]);
+    if (!selectedRowId) return null;
+    return (
+      sortedAnalyses.find(
+        (a) => `${a.kodeKomoditas}_${a.scopeType}_${a.regionId || 'kalbar'}` === selectedRowId
+      ) || null
+    );
+  }, [sortedAnalyses, selectedRowId]);
 
   const handleExportExcel = () => {
     exportHpbsStabilityToExcel(filteredAnalyses, activeRegionName);
@@ -213,51 +277,108 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
       {/* Top Scope & Controls Bar */}
       <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-          {/* Scope Selector: Kalbar vs Regional */}
+          {/* Scope Selector: Semua Kab/Kota vs Agregat Se-Kalbar */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-lg p-1 bg-slate-100 border border-slate-200">
               <button
-                id="btn-scope-kalbar"
-                onClick={() => setScopeType('kalbar')}
+                type="button"
+                id="btn-scope-all"
+                onClick={() => {
+                  setSelectedRegionId('all');
+                  setScopeType('regional');
+                  setCurrentPage(1);
+                }}
                 className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                  scopeType === 'kalbar'
+                  selectedRegionId === 'all' && scopeType !== 'kalbar'
                     ? 'bg-emerald-700 text-white shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Agregat Se-Kalbar (14 Wilayah)
+                Semua Kab/Kota (14 Wilayah)
               </button>
               <button
-                id="btn-scope-regional"
-                onClick={() => setScopeType('regional')}
+                type="button"
+                id="btn-scope-kalbar"
+                onClick={() => {
+                  setSelectedRegionId('kalbar');
+                  setScopeType('kalbar');
+                  setCurrentPage(1);
+                }}
                 className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                  scopeType === 'regional'
+                  selectedRegionId === 'kalbar' || scopeType === 'kalbar'
                     ? 'bg-emerald-700 text-white shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Per Kabupaten/Kota
+                Agregat Se-Kalbar
               </button>
             </div>
 
-            {/* Region dropdown if regional scope selected */}
-            {scopeType === 'regional' && (
-              <div className="flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-emerald-700" />
-                <select
-                  id="select-series-region"
-                  value={selectedRegionId}
-                  onChange={(e) => setSelectedRegionId(e.target.value)}
-                  className="text-xs font-semibold bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                >
+            {/* Region dropdown filter (Semua Kab/Kota, Agregat, atau per Kab/Kota) */}
+            <div className="flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+              <select
+                id="select-series-region"
+                value={scopeType === 'kalbar' ? 'kalbar' : selectedRegionId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedRegionId(val);
+                  setScopeType(val === 'kalbar' ? 'kalbar' : 'regional');
+                  setCurrentPage(1);
+                }}
+                className="text-xs font-semibold bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 cursor-pointer shadow-2xs"
+                title="Pilih wilayah pencacahan atau gabungan semua kab/kota"
+              >
+                <option value="all" className="font-bold text-emerald-800">
+                  🌐 Semua Kab/Kota (14 Wilayah)
+                </option>
+                <option value="kalbar" className="font-bold text-slate-800">
+                  ⭐ Agregat Se-Kalbar Saja
+                </option>
+                <optgroup label="Pilih Per Kabupaten/Kota:">
                   {DEFAULT_REGIONS.map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.name}
                     </option>
                   ))}
-                </select>
-              </div>
-            )}
+                </optgroup>
+              </select>
+            </div>
+
+            {/* Dropdown Komoditas dari Seluruh Kab/Kota */}
+            <div className="flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+              <select
+                id="select-series-commodity"
+                value={commodityFilter}
+                onChange={(e) => {
+                  setCommodityFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="text-xs font-semibold bg-white border border-emerald-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 cursor-pointer shadow-2xs max-w-[260px] sm:max-w-[320px] truncate text-slate-800"
+                title="Pilih komoditas dari seluruh kabupaten/kota"
+              >
+                <option value="ALL">📦 Semua Komoditas ({allDistinctCommodities.length} komoditas)</option>
+                {allDistinctCommodities.map((c) => (
+                  <option key={c.kodeKomoditas} value={c.kodeKomoditas}>
+                    [{c.kodeKomoditas}] {c.komoditas} ({c.regionCount} Kab/Kota)
+                  </option>
+                ))}
+              </select>
+              {commodityFilter !== 'ALL' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCommodityFilter('ALL');
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg cursor-pointer transition-colors shrink-0"
+                  title="Tampilkan semua komoditas"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Export and Info Actions */}
@@ -284,7 +405,7 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cari komoditas atau kode..."
+                placeholder="Cari komoditas, kode, wilayah..."
                 className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
               />
             </div>
@@ -371,9 +492,11 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
                 }}
                 className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-semibold text-slate-700 cursor-pointer"
               >
-                <option value="kode_asc">Kode Komoditas (01 → 99)</option>
                 <option value="komoditas_asc">Nama Komoditas (A → Z)</option>
                 <option value="komoditas_desc">Nama Komoditas (Z → A)</option>
+                <option value="wilayah_asc">Wilayah (Agregat Duluan → A-Z)</option>
+                <option value="wilayah_desc">Wilayah (Z → A)</option>
+                <option value="kode_asc">Kode Komoditas (01 → 99)</option>
                 <option value="changedRhCount_desc">Frekuensi Perubahan Terbanyak (RH ≠ 100)</option>
                 <option value="changedRhCount_asc">Frekuensi Perubahan Terkecil (Selalu RH = 100)</option>
                 <option value="volatility_asc">Paling Stabil (Volatilitas Terendah)</option>
@@ -488,6 +611,30 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
                   <div className="flex items-center gap-1">
                     <span>Komoditas</span>
                     {sortKey === 'komoditas' || sortKey === 'kode' ? (
+                      sortDirection === 'asc' ? (
+                        <ArrowUp className="w-3 h-3 text-emerald-700" />
+                      ) : (
+                        <ArrowDown className="w-3 h-3 text-emerald-700" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="w-2.5 h-2.5 text-slate-400 opacity-60" />
+                    )}
+                  </div>
+                </th>
+
+                {/* Wilayah / Cakupan */}
+                <th
+                  onClick={() => handleSort('wilayah')}
+                  className={`py-2.5 px-3 select-none cursor-pointer transition-colors ${
+                    sortKey === 'wilayah'
+                      ? 'bg-emerald-100/90 text-emerald-950 font-bold'
+                      : 'hover:bg-slate-200/90'
+                  }`}
+                  title="Klik untuk mengurutkan wilayah / cakupan (Agregat dahulu, lalu kabupaten/kota)"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Wilayah / Cakupan</span>
+                    {sortKey === 'wilayah' ? (
                       sortDirection === 'asc' ? (
                         <ArrowUp className="w-3 h-3 text-emerald-700" />
                       ) : (
@@ -702,19 +849,20 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
             <tbody className="divide-y divide-slate-100">
               {paginatedAnalyses.length === 0 ? (
                 <tr>
-                  <td colSpan={8 + sortedPeriods.length} className="py-8 text-center text-slate-400">
+                  <td colSpan={9 + sortedPeriods.length} className="py-8 text-center text-slate-400">
                     Tidak ada komoditas yang sesuai dengan filter pencarian.
                   </td>
                 </tr>
               ) : (
                 paginatedAnalyses.map((item) => {
-                  const isSelected = selectedCommodityCode === item.kodeKomoditas;
+                  const rowId = `${item.kodeKomoditas}_${item.scopeType}_${item.regionId || 'kalbar'}`;
+                  const isSelected = selectedRowId === rowId;
                   return (
                     <tr
-                      key={item.kodeKomoditas}
+                      key={rowId}
                       onClick={() =>
-                        setSelectedCommodityCode(
-                          isSelected ? null : item.kodeKomoditas
+                        setSelectedRowId(
+                          isSelected ? null : rowId
                         )
                       }
                       className={`hover:bg-slate-50/80 cursor-pointer transition-colors ${
@@ -727,6 +875,20 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
                         <div className="text-[10px] text-slate-400 font-mono">
                           {item.kodeKomoditas}
                         </div>
+                      </td>
+
+                      {/* Wilayah / Cakupan Badge */}
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        {item.scopeType === 'kalbar' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                            ⭐ Agregat Se-Kalbar
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                            <MapPin className="w-2.5 h-2.5 text-emerald-600" />
+                            {item.regionName}
+                          </span>
+                        )}
                       </td>
 
                       {/* Kuesioner */}
@@ -923,17 +1085,31 @@ export const HpbsStabilitySeriesView: React.FC<HpbsStabilitySeriesViewProps> = (
                 <span className="text-xs text-slate-400 font-mono">
                   {selectedCommodityDetail.kodeKomoditas}
                 </span>
+                {selectedCommodityDetail.scopeType === 'kalbar' ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/30 text-emerald-300 border border-emerald-400/30">
+                    ⭐ Agregat Se-Kalbar
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                    📍 {selectedCommodityDetail.regionName}
+                  </span>
+                )}
               </div>
               <h4 className="text-base font-bold text-white mt-1">
                 {selectedCommodityDetail.komoditas} ({selectedCommodityDetail.satuanStandar})
               </h4>
               <p className="text-xs text-slate-400">
-                Riwayat pergerakan Relatif Harga (RH) di {activeRegionName}
+                Riwayat pergerakan Relatif Harga (RH) &bull;{' '}
+                <span className="text-emerald-300 font-semibold">
+                  {selectedCommodityDetail.scopeType === 'kalbar'
+                    ? 'Agregat Se-Kalbar'
+                    : selectedCommodityDetail.regionName || activeRegionName}
+                </span>
               </p>
             </div>
 
             <button
-              onClick={() => setSelectedCommodityCode(null)}
+              onClick={() => setSelectedRowId(null)}
               className="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
             >
               Tutup Rincian
