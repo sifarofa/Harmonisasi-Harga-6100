@@ -341,9 +341,39 @@ export default function App() {
       );
 
       if (supaData.error) {
+        // Fallback to App Server API if Supabase is unreachable even via proxy
+        const [srvHarm, srvIhk, srvHpbs] = await Promise.all([
+          fetchPublishedDatasets(userKode, { skipSupabase: true }),
+          fetchPublishedIhkDataset(userKode, { skipSupabase: true }),
+          fetchPublishedHpbsDataset(userKode, { skipSupabase: true }),
+        ]);
+
+        let recoveredFromServer = false;
+        if (srvHarm?.datasets && srvHarm.datasets.length > 0) {
+          setDatasets(srvHarm.datasets);
+          await savePersistentItem(STORAGE_KEYS.HARMONIZATION, srvHarm.datasets, false, 1, Date.now(), true);
+          recoveredFromServer = true;
+        }
+        if (srvIhk?.ihkDataset?.regions) {
+          setIhkDataset(srvIhk.ihkDataset);
+          await savePersistentItem(STORAGE_KEYS.IHK, srvIhk.ihkDataset, false, 1, Date.now(), true);
+          recoveredFromServer = true;
+        }
+        if (srvHpbs?.dataset && (srvHpbs.dataset.records?.length > 0 || srvHpbs.dataset.periods?.length)) {
+          const normalized = normalizeHpbsDataset(srvHpbs.dataset);
+          setHpbsDataset(normalized);
+          persistHpbsDatasetLocally(normalized, false, Date.now(), true);
+          recoveredFromServer = true;
+        }
+
         setSyncStatus('error');
         setSyncMessage(`Gagal terhubung ke Supabase: ${supaData.error}`);
-        showPublishToast(`⚠️ Gagal menyinkronkan dengan Supabase: ${supaData.error}`, 'error');
+        showPublishToast(
+          recoveredFromServer
+            ? `⚠️ Supabase gagal dijangkau (${supaData.error}). Data disinkronkan sementara melalui server aplikasi.`
+            : `⚠️ Gagal menyinkronkan dengan Supabase: ${supaData.error}`,
+          'error'
+        );
         return;
       }
 
@@ -519,8 +549,28 @@ export default function App() {
         if (!isMounted) return;
 
         if (supaData.error) {
-          setSyncStatus('error');
-          setSyncMessage(`Koneksi Supabase bermasalah: ${supaData.error}`);
+          const [srvHarm, srvIhk, srvHpbs] = await Promise.all([
+            fetchPublishedDatasets(userKode, { skipSupabase: true }),
+            fetchPublishedIhkDataset(userKode, { skipSupabase: true }),
+            fetchPublishedHpbsDataset(userKode, { skipSupabase: true }),
+          ]);
+          if (isMounted) {
+            if (srvHarm?.datasets && srvHarm.datasets.length > 0) {
+              setDatasets(srvHarm.datasets);
+              await savePersistentItem(STORAGE_KEYS.HARMONIZATION, srvHarm.datasets, false, 1, Date.now(), true);
+            }
+            if (srvIhk?.ihkDataset?.regions) {
+              setIhkDataset(srvIhk.ihkDataset);
+              await savePersistentItem(STORAGE_KEYS.IHK, srvIhk.ihkDataset, false, 1, Date.now(), true);
+            }
+            if (srvHpbs?.dataset && (srvHpbs.dataset.records?.length > 0 || srvHpbs.dataset.periods?.length)) {
+              const normalized = normalizeHpbsDataset(srvHpbs.dataset);
+              setHpbsDataset(normalized);
+              persistHpbsDatasetLocally(normalized, false, Date.now(), true);
+            }
+            setSyncStatus('error');
+            setSyncMessage(`Koneksi Supabase bermasalah: ${supaData.error}`);
+          }
           return;
         }
 

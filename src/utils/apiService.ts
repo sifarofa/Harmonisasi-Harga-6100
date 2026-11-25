@@ -38,7 +38,8 @@ function getAlternativeApiUrl(path: string): string | null {
 
 // Fetch published harmonization datasets (Supabase with server fallback)
 export async function fetchPublishedDatasets(
-  kodeKabKota?: string
+  kodeKabKota?: string,
+  options?: { skipSupabase?: boolean }
 ): Promise<{
   datasets: MonthlyHarmonizationDataset[];
   lastUpdated?: string;
@@ -46,25 +47,27 @@ export async function fetchPublishedDatasets(
   const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
 
   // 1. Supabase Cloud First (Single Source of Truth - newest updated_at wins)
-  try {
-    const allowedKodes = targetKode === '61.00' ? ['61.00'] : [targetKode, '61.00'];
-    const { data, error } = await supabase
-      .from('wilayah_datasets')
-      .select('*')
-      .eq('dataset_type', 'harmonisasi')
-      .in('kode_kabkota', allowedKodes)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  if (!options?.skipSupabase) {
+    try {
+      const allowedKodes = targetKode === '61.00' ? ['61.00'] : [targetKode, '61.00'];
+      const { data, error } = await supabase
+        .from('wilayah_datasets')
+        .select('*')
+        .eq('dataset_type', 'harmonisasi')
+        .in('kode_kabkota', allowedKodes)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (!error && data && Array.isArray(data.payload) && data.payload.length > 0) {
-      return {
-        datasets: migrateHarmonizationDatasets(data.payload),
-        lastUpdated: data.updated_at,
-      };
+      if (!error && data && Array.isArray(data.payload) && data.payload.length > 0) {
+        return {
+          datasets: migrateHarmonizationDatasets(data.payload),
+          lastUpdated: data.updated_at,
+        };
+      }
+    } catch (supaErr) {
+      console.debug('[Supabase API] Failed to fetch harmonization:', supaErr);
     }
-  } catch (supaErr) {
-    console.debug('[Supabase API] Failed to fetch harmonization:', supaErr);
   }
 
   // 2. Server API Fallback
@@ -203,7 +206,8 @@ export async function saveHarmonizationNote(
 
 // Fetch published IHK dataset (Supabase with server fallback)
 export async function fetchPublishedIhkDataset(
-  kodeKabKota?: string
+  kodeKabKota?: string,
+  options?: { skipSupabase?: boolean }
 ): Promise<{
   ihkDataset: IhkCompleteDataset;
   lastUpdated?: string;
@@ -211,25 +215,27 @@ export async function fetchPublishedIhkDataset(
   const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
 
   // 1. Supabase Cloud First (newest updated_at wins)
-  try {
-    const allowedKodes = targetKode === '61.00' ? ['61.00'] : [targetKode, '61.00'];
-    const { data, error } = await supabase
-      .from('wilayah_datasets')
-      .select('*')
-      .eq('dataset_type', 'ihk')
-      .in('kode_kabkota', allowedKodes)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  if (!options?.skipSupabase) {
+    try {
+      const allowedKodes = targetKode === '61.00' ? ['61.00'] : [targetKode, '61.00'];
+      const { data, error } = await supabase
+        .from('wilayah_datasets')
+        .select('*')
+        .eq('dataset_type', 'ihk')
+        .in('kode_kabkota', allowedKodes)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (!error && data && data.payload && data.payload.regions) {
-      return {
-        ihkDataset: migrateIhkDataset(data.payload),
-        lastUpdated: data.updated_at,
-      };
+      if (!error && data && data.payload && data.payload.regions) {
+        return {
+          ihkDataset: migrateIhkDataset(data.payload),
+          lastUpdated: data.updated_at,
+        };
+      }
+    } catch (supaErr) {
+      console.debug('[Supabase API] Failed to fetch IHK from Supabase:', supaErr);
     }
-  } catch (supaErr) {
-    console.debug('[Supabase API] Failed to fetch IHK from Supabase:', supaErr);
   }
 
   // 2. Server API Fallback
@@ -348,7 +354,8 @@ export async function resetServerIhkDataset(kodeKabKota?: string): Promise<boole
 
 // Fetch published HPBS dataset (Supabase with server fallback)
 export async function fetchPublishedHpbsDataset(
-  kodeKabKota?: string
+  kodeKabKota?: string,
+  options?: { skipSupabase?: boolean }
 ): Promise<{
   dataset: HpbsDataset;
   lastUpdated?: string;
@@ -356,23 +363,25 @@ export async function fetchPublishedHpbsDataset(
   const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
 
   // 1. Supabase Cloud First (SHPB/HPBS is unified province-wide — always pick newest updated_at across devices)
-  try {
-    const { data, error } = await supabase
-      .from('wilayah_datasets')
-      .select('*')
-      .eq('dataset_type', 'hpbs')
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  if (!options?.skipSupabase) {
+    try {
+      const { data, error } = await supabase
+        .from('wilayah_datasets')
+        .select('*')
+        .eq('dataset_type', 'hpbs')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (!error && data && data.payload && (Array.isArray(data.payload.records) || Array.isArray(data.payload.periods))) {
-      return {
-        dataset: migrateHpbsDataset(data.payload),
-        lastUpdated: data.updated_at,
-      };
+      if (!error && data && data.payload && (Array.isArray(data.payload.records) || Array.isArray(data.payload.periods))) {
+        return {
+          dataset: migrateHpbsDataset(data.payload),
+          lastUpdated: data.updated_at,
+        };
+      }
+    } catch (supaErr) {
+      console.debug('[Supabase API] Failed to fetch HPBS from Supabase:', supaErr);
     }
-  } catch (supaErr) {
-    console.debug('[Supabase API] Failed to fetch HPBS from Supabase:', supaErr);
   }
 
   // 2. Server API Fallback

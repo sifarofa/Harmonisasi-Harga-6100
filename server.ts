@@ -32,20 +32,83 @@ function broadcastSync(event: { type: string; lastUpdated: string; payload?: any
   }
 }
 
-// Body parser with 50MB limit to handle large multi-month and multi-commodity datasets
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
 // Cross-Origin Resource Sharing (CORS) to support cross-device, mobile, and preview syncing
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Expires');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, Accept, Prefer, Range, X-Client-Info, Accept-Profile, Content-Profile, Cache-Control, Pragma, Expires');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
   next();
 });
+
+const SUPABASE_TARGET_URL = (process.env.VITE_SUPABASE_URL || 'https://pjzhpweddmrnzkvigehg.supabase.co').replace(/\/+$/, '');
+
+// Same-origin Supabase Reverse Proxy (handles ISP/DNS/firewall blocks or browser CORS issues on *.supabase.co)
+app.use('/api/supabase-proxy', express.raw({ type: '*/*', limit: '50mb' }), async (req, res) => {
+  const upstreamPath = req.originalUrl.replace(/^\/api\/supabase-proxy/, '') || '/';
+  const targetUrl = `${SUPABASE_TARGET_URL}${upstreamPath}`;
+
+  const forwardHeaders: Record<string, string> = {};
+  const allowedHeaderKeys = [
+    'apikey',
+    'authorization',
+    'content-type',
+    'accept',
+    'prefer',
+    'range',
+    'x-client-info',
+    'accept-profile',
+    'content-profile',
+  ];
+  for (const key of allowedHeaderKeys) {
+    const val = req.headers[key];
+    if (typeof val === 'string' && val.length > 0) {
+      forwardHeaders[key] = val;
+    } else if (Array.isArray(val) && val.length > 0) {
+      forwardHeaders[key] = val.join(', ');
+    }
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
+    const rawBody =
+      hasBody && Buffer.isBuffer(req.body) && req.body.length > 0 ? new Uint8Array(req.body) : undefined;
+
+    const upstream = await fetch(targetUrl, {
+      method: req.method,
+      headers: forwardHeaders,
+      body: rawBody,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    const responseBuffer = Buffer.from(await upstream.arrayBuffer());
+    const copyHeaderKeys = ['content-type', 'content-range', 'preference-applied'];
+    for (const key of copyHeaderKeys) {
+      const val = upstream.headers.get(key);
+      if (val) res.setHeader(key, val);
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(upstream.status).send(responseBuffer);
+  } catch (err: any) {
+    clearTimeout(timeout);
+    const causeMsg = err?.cause?.code || err?.cause?.message || err?.message || 'Koneksi gagal';
+    console.warn(`[Supabase Proxy] Error forwarding ${req.method} ${upstreamPath}:`, causeMsg);
+    return res.status(502).json({
+      message: `Supabase (${SUPABASE_TARGET_URL}) tidak dapat dijangkau (${causeMsg}). Pastikan project Supabase aktif / tidak di-pause.`,
+      error: causeMsg,
+    });
+  }
+});
+
+// Body parser with 50MB limit to handle large multi-month and multi-commodity datasets
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Determine persistent data directories and files
 const DATA_DIR = path.join(process.cwd(), 'src', 'data');
@@ -523,22 +586,6 @@ app.post('/api/hpbs-datasets', (req, res) => {
     }
 
     const cleanIncomingRecords = filterValidHpbsRecords(incoming.records);
-
-    // CRITICAL PROTECTION: Prevent regression from 1969 records to dummy records (< 500)
-    if (
-      cachedHpbsDataset &&
-      Array.isArray(cachedHpbsDataset.records) &&
-      cachedHpbsDataset.records.length > 1000 &&
-      cleanIncomingRecords.length < 500
-    ) {
-      console.warn(`[Server] Protected HPBS dataset: incoming has only ${cleanIncomingRecords.length} records, maintaining existing ${cachedHpbsDataset.records.length} records.`);
-      return res.json({
-        success: true,
-        message: 'Server mempertahankan data lengkap September 2026 (1.969 pedagang).',
-        lastUpdated: lastHpbsUpdated,
-        dataset: cachedHpbsDataset,
-      });
-    }
 
     let cleanPeriods = incoming.periods || (cachedHpbsDataset && (cachedHpbsDataset as any).periods) || undefined;
     if (Array.isArray(cleanPeriods)) {

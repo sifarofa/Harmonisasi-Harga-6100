@@ -8,9 +8,10 @@ import { HpbsDataset, HpbsRespondentRecord } from '../types/hpbs';
 import { DEFAULT_REGIONS } from '../data/initialData';
 
 // 1. Environment Variables Configuration with Graceful Fallback
-export const SUPABASE_URL =
+export const SUPABASE_URL = (
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) ||
-  'https://pjzhpweddmrnzkvigehg.supabase.co';
+  'https://pjzhpweddmrnzkvigehg.supabase.co'
+).replace(/\/+$/, '');
 
 export const SUPABASE_ANON_KEY =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_ANON_KEY) ||
@@ -28,11 +29,70 @@ if (!isSupabaseConfigured) {
   );
 }
 
+// Smart fetch: tries direct Supabase first; if blocked by ISP/DNS/firewall/CORS (TypeError: Failed to fetch),
+// transparently falls back to same-origin Express proxy `/api/supabase-proxy/*`.
+let preferSupabaseProxy = false;
+
+async function buildProxyRequestInit(input: RequestInfo | URL, init?: RequestInit): Promise<RequestInit> {
+  if (init) return init;
+  if (typeof Request !== 'undefined' && input instanceof Request) {
+    const cloned = input.clone();
+    const method = cloned.method || 'GET';
+    const hasBody = method !== 'GET' && method !== 'HEAD';
+    const body = hasBody ? await cloned.arrayBuffer() : undefined;
+    return {
+      method,
+      headers: cloned.headers,
+      body,
+    };
+  }
+  return {};
+}
+
+const smartSupabaseFetch: typeof fetch = async (input, init) => {
+  const urlStr =
+    typeof input === 'string'
+      ? input
+      : input instanceof URL
+      ? input.toString()
+      : input.url;
+
+  const canProxy =
+    typeof window !== 'undefined' &&
+    Boolean(SUPABASE_URL) &&
+    urlStr.startsWith(SUPABASE_URL);
+
+  if (!canProxy) {
+    return fetch(input, init);
+  }
+
+  const proxyUrl = `/api/supabase-proxy${urlStr.slice(SUPABASE_URL.length)}`;
+
+  if (preferSupabaseProxy) {
+    const proxyInit = await buildProxyRequestInit(input, init);
+    return fetch(proxyUrl, proxyInit);
+  }
+
+  try {
+    return await fetch(input, init);
+  } catch (directErr) {
+    preferSupabaseProxy = true;
+    console.info(
+      '[Supabase] Koneksi langsung browser gagal, beralih ke proxy server (/api/supabase-proxy)...'
+    );
+    const proxyInit = await buildProxyRequestInit(input, init);
+    return fetch(proxyUrl, proxyInit);
+  }
+};
+
 // 2. Safe Supabase Client Initializer
 export const supabase = createClient(
   SUPABASE_URL || 'https://placeholder.supabase.co',
   SUPABASE_ANON_KEY || 'placeholder',
   {
+    global: {
+      fetch: smartSupabaseFetch,
+    },
     auth: {
       persistSession: true,
       autoRefreshToken: true,
