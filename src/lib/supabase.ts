@@ -8,14 +8,26 @@ import { HpbsDataset, HpbsRespondentRecord } from '../types/hpbs';
 import { DEFAULT_REGIONS } from '../data/initialData';
 
 // 1. Environment Variables Configuration with Graceful Fallback
-export const SUPABASE_URL = (
+const rawSupaUrl = (
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) ||
   'https://pjzhpweddmrnzkvigehg.supabase.co'
-).replace(/\/+$/, '');
+)
+  .toString()
+  .trim()
+  .replace(/^["']|["']$/g, '')
+  .replace(/\/+$/, '');
 
-export const SUPABASE_ANON_KEY =
+export const SUPABASE_URL = rawSupaUrl.startsWith('http')
+  ? rawSupaUrl
+  : `https://${rawSupaUrl}`;
+
+export const SUPABASE_ANON_KEY = (
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_ANON_KEY) ||
-  'sb_publishable_8s26cuw_eEHc9PqGlKbD0Q_B4wTtg1m';
+  'sb_publishable_8s26cuw_eEHc9PqGlKbD0Q_B4wTtg1m'
+)
+  .toString()
+  .trim()
+  .replace(/^["']|["']$/g, '');
 
 export const isSupabaseConfigured = Boolean(
   SUPABASE_URL &&
@@ -30,7 +42,7 @@ if (!isSupabaseConfigured) {
 }
 
 // Smart fetch: tries direct Supabase first; if blocked by ISP/DNS/firewall/CORS (TypeError: Failed to fetch),
-// transparently falls back to same-origin Express proxy `/api/supabase-proxy/*`.
+// transparently falls back to same-origin proxy `/api/supabase-proxy/*`.
 let preferSupabaseProxy = false;
 
 async function buildProxyRequestInit(input: RequestInfo | URL, init?: RequestInit): Promise<RequestInit> {
@@ -47,6 +59,22 @@ async function buildProxyRequestInit(input: RequestInfo | URL, init?: RequestIni
     };
   }
   return {};
+}
+
+async function fetchViaProxy(proxyUrl: string, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const proxyInit = await buildProxyRequestInit(input, init);
+  const proxyRes = await fetch(proxyUrl, proxyInit);
+  const contentType = proxyRes.headers.get('content-type') || '';
+  if (proxyRes.status === 404 && !contentType.includes('application/json')) {
+    preferSupabaseProxy = false;
+    return new Response(
+      JSON.stringify({
+        message: `Supabase (${SUPABASE_URL}) tidak dapat dijangkau langsung dari browser (kemungkinan project Supabase berstatus Paused/tidak aktif atau diblokir jaringan/ISP).`,
+      }),
+      { status: 502, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+  return proxyRes;
 }
 
 const smartSupabaseFetch: typeof fetch = async (input, init) => {
@@ -69,19 +97,17 @@ const smartSupabaseFetch: typeof fetch = async (input, init) => {
   const proxyUrl = `/api/supabase-proxy${urlStr.slice(SUPABASE_URL.length)}`;
 
   if (preferSupabaseProxy) {
-    const proxyInit = await buildProxyRequestInit(input, init);
-    return fetch(proxyUrl, proxyInit);
+    return fetchViaProxy(proxyUrl, input, init);
   }
 
   try {
     return await fetch(input, init);
-  } catch (directErr) {
+  } catch {
     preferSupabaseProxy = true;
     console.info(
       '[Supabase] Koneksi langsung browser gagal, beralih ke proxy server (/api/supabase-proxy)...'
     );
-    const proxyInit = await buildProxyRequestInit(input, init);
-    return fetch(proxyUrl, proxyInit);
+    return fetchViaProxy(proxyUrl, input, init);
   }
 };
 
