@@ -344,10 +344,10 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
                 <span>Menyinkronkan...</span>
               </span>
-            ) : syncStatus === 'error' ? (
+            ) : syncStatus === 'error' || syncStatus === 'offline' ? (
               <span className="flex items-center gap-1.5 text-rose-700">
                 <span className="w-2 h-2 rounded-full bg-rose-500" />
-                <span>Offline / Terproteksi</span>
+                <span>{syncStatus === 'error' ? 'Gagal Sinkron' : 'Mode Offline'}</span>
               </span>
             ) : (
               <span className="flex items-center gap-1.5 text-emerald-800">

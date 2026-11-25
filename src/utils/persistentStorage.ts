@@ -87,7 +87,8 @@ export async function savePersistentItem<T>(
   data: T,
   hasUserEdits: boolean = true,
   version: number = 1,
-  customTimestamp?: number
+  customTimestamp?: number,
+  skipCloudSync: boolean = false
 ): Promise<boolean> {
   const timestamp = customTimestamp || Date.now();
   const item: StoredItem<T> = {
@@ -127,9 +128,9 @@ export async function savePersistentItem<T>(
     } catch (_) {}
   }
 
-  // Centralized Cloud Backend: Automatically upsert to Supabase table `wilayah_datasets`
+  // Centralized Cloud Backend: Automatically upsert to Supabase table `wilayah_datasets` unless explicitly handled by caller
   const datasetType = mapStorageKeyToDatasetType(key);
-  if (datasetType && hasUserEdits) {
+  if (datasetType && hasUserEdits && !skipCloudSync) {
     const regionKode = getCurrentUserRegionKode();
     upsertWilayahDataset(regionKode, datasetType, data).catch((supaErr) => {
       console.warn(`[PersistentStorage] Supabase upsert failed for ${regionKode}/${datasetType}:`, supaErr);
@@ -192,12 +193,19 @@ export async function loadPersistentItem<T>(key: string): Promise<StoredItem<T> 
     const datasetType = mapStorageKeyToDatasetType(key);
     if (datasetType) {
       const regionKode = getCurrentUserRegionKode();
-      const { data, error } = await supabase
+      let query = supabase
         .from('wilayah_datasets')
         .select('*')
-        .eq('kode_kabkota', regionKode)
         .eq('dataset_type', datasetType)
-        .maybeSingle();
+        .order('updated_at', { ascending: false })
+        .limit(1);
+
+      if (datasetType !== 'hpbs') {
+        const allowedKodes = regionKode === '61.00' ? ['61.00'] : [regionKode, '61.00'];
+        query = query.in('kode_kabkota', allowedKodes);
+      }
+
+      const { data, error } = await query.maybeSingle();
 
       if (!error && data && data.payload) {
         return {

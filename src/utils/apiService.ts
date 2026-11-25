@@ -45,13 +45,16 @@ export async function fetchPublishedDatasets(
 } | null> {
   const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
 
-  // 1. Supabase Cloud First (Single Source of Truth)
+  // 1. Supabase Cloud First (Single Source of Truth - newest updated_at wins)
   try {
+    const allowedKodes = targetKode === '61.00' ? ['61.00'] : [targetKode, '61.00'];
     const { data, error } = await supabase
       .from('wilayah_datasets')
       .select('*')
       .eq('dataset_type', 'harmonisasi')
-      .eq('kode_kabkota', targetKode)
+      .in('kode_kabkota', allowedKodes)
+      .order('updated_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (!error && data && Array.isArray(data.payload) && data.payload.length > 0) {
@@ -59,23 +62,6 @@ export async function fetchPublishedDatasets(
         datasets: migrateHarmonizationDatasets(data.payload),
         lastUpdated: data.updated_at,
       };
-    }
-
-    // If no specific dataset found for this kab/kota and not 61.00, check master 61.00
-    if (targetKode !== '61.00') {
-      const { data: masterData } = await supabase
-        .from('wilayah_datasets')
-        .select('*')
-        .eq('dataset_type', 'harmonisasi')
-        .eq('kode_kabkota', '61.00')
-        .maybeSingle();
-
-      if (masterData && Array.isArray(masterData.payload) && masterData.payload.length > 0) {
-        return {
-          datasets: migrateHarmonizationDatasets(masterData.payload),
-          lastUpdated: masterData.updated_at,
-        };
-      }
     }
   } catch (supaErr) {
     console.debug('[Supabase API] Failed to fetch harmonization:', supaErr);
@@ -130,17 +116,20 @@ export async function fetchPublishedDatasets(
 // Save/Publish harmonization datasets to Supabase and server
 export async function savePublishedDatasets(
   datasets: MonthlyHarmonizationDataset[],
-  kodeKabKota?: string
+  kodeKabKota?: string,
+  options?: { skipSupabase?: boolean }
 ): Promise<boolean> {
   const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
   const migrated = migrateHarmonizationDatasets(datasets);
 
   // 1. Centralized Supabase UPSERT
-  let supaSuccess = false;
-  try {
-    supaSuccess = await upsertWilayahDataset(targetKode, 'harmonisasi', migrated);
-  } catch (supaErr) {
-    console.warn('[Supabase API] savePublishedDatasets error:', supaErr);
+  let supaSuccess = Boolean(options?.skipSupabase);
+  if (!options?.skipSupabase) {
+    try {
+      supaSuccess = await upsertWilayahDataset(targetKode, 'harmonisasi', migrated);
+    } catch (supaErr) {
+      console.warn('[Supabase API] savePublishedDatasets error:', supaErr);
+    }
   }
 
   // 2. Server persistence fallback
@@ -221,13 +210,16 @@ export async function fetchPublishedIhkDataset(
 } | null> {
   const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
 
-  // 1. Supabase Cloud First
+  // 1. Supabase Cloud First (newest updated_at wins)
   try {
+    const allowedKodes = targetKode === '61.00' ? ['61.00'] : [targetKode, '61.00'];
     const { data, error } = await supabase
       .from('wilayah_datasets')
       .select('*')
       .eq('dataset_type', 'ihk')
-      .eq('kode_kabkota', targetKode)
+      .in('kode_kabkota', allowedKodes)
+      .order('updated_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (!error && data && data.payload && data.payload.regions) {
@@ -235,22 +227,6 @@ export async function fetchPublishedIhkDataset(
         ihkDataset: migrateIhkDataset(data.payload),
         lastUpdated: data.updated_at,
       };
-    }
-
-    if (targetKode !== '61.00') {
-      const { data: masterData } = await supabase
-        .from('wilayah_datasets')
-        .select('*')
-        .eq('dataset_type', 'ihk')
-        .eq('kode_kabkota', '61.00')
-        .maybeSingle();
-
-      if (masterData && masterData.payload && masterData.payload.regions) {
-        return {
-          ihkDataset: migrateIhkDataset(masterData.payload),
-          lastUpdated: masterData.updated_at,
-        };
-      }
     }
   } catch (supaErr) {
     console.debug('[Supabase API] Failed to fetch IHK from Supabase:', supaErr);
@@ -282,17 +258,20 @@ export async function fetchPublishedIhkDataset(
 // Save/Publish IHK dataset to Supabase and server
 export async function savePublishedIhkDataset(
   ihkDataset: IhkCompleteDataset,
-  kodeKabKota?: string
+  kodeKabKota?: string,
+  options?: { skipSupabase?: boolean }
 ): Promise<boolean> {
   const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
   const migrated = migrateIhkDataset(ihkDataset);
 
   // 1. Supabase Cloud UPSERT
-  let supaSuccess = false;
-  try {
-    supaSuccess = await upsertWilayahDataset(targetKode, 'ihk', migrated);
-  } catch (supaErr) {
-    console.warn('[Supabase API] savePublishedIhkDataset error:', supaErr);
+  let supaSuccess = Boolean(options?.skipSupabase);
+  if (!options?.skipSupabase) {
+    try {
+      supaSuccess = await upsertWilayahDataset(targetKode, 'ihk', migrated);
+    } catch (supaErr) {
+      console.warn('[Supabase API] savePublishedIhkDataset error:', supaErr);
+    }
   }
 
   // 2. Server persistence fallback
@@ -376,36 +355,21 @@ export async function fetchPublishedHpbsDataset(
 } | null> {
   const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
 
-  // 1. Supabase Cloud First
+  // 1. Supabase Cloud First (SHPB/HPBS is unified province-wide — always pick newest updated_at across devices)
   try {
     const { data, error } = await supabase
       .from('wilayah_datasets')
       .select('*')
       .eq('dataset_type', 'hpbs')
-      .eq('kode_kabkota', targetKode)
+      .order('updated_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
-    if (!error && data && data.payload && Array.isArray(data.payload.records)) {
+    if (!error && data && data.payload && (Array.isArray(data.payload.records) || Array.isArray(data.payload.periods))) {
       return {
         dataset: migrateHpbsDataset(data.payload),
         lastUpdated: data.updated_at,
       };
-    }
-
-    if (targetKode !== '61.00') {
-      const { data: masterData } = await supabase
-        .from('wilayah_datasets')
-        .select('*')
-        .eq('dataset_type', 'hpbs')
-        .eq('kode_kabkota', '61.00')
-        .maybeSingle();
-
-      if (masterData && masterData.payload && Array.isArray(masterData.payload.records)) {
-        return {
-          dataset: migrateHpbsDataset(masterData.payload),
-          lastUpdated: masterData.updated_at,
-        };
-      }
     }
   } catch (supaErr) {
     console.debug('[Supabase API] Failed to fetch HPBS from Supabase:', supaErr);
@@ -437,7 +401,8 @@ export async function fetchPublishedHpbsDataset(
 // Save/Publish HPBS dataset to Supabase and server
 export async function savePublishedHpbsDataset(
   dataset: HpbsDataset,
-  kodeKabKota?: string
+  kodeKabKota?: string,
+  options?: { skipSupabase?: boolean }
 ): Promise<boolean> {
   const targetKode = formatKodeKabKota(kodeKabKota || getCurrentUserRegionKode());
   const migrated = migrateHpbsDataset(dataset);
@@ -453,11 +418,13 @@ export async function savePublishedHpbsDataset(
   };
 
   // 1. Supabase Cloud UPSERT
-  let supaSuccess = false;
-  try {
-    supaSuccess = await upsertWilayahDataset(targetKode, 'hpbs', payload);
-  } catch (supaErr) {
-    console.warn('[Supabase API] savePublishedHpbsDataset error:', supaErr);
+  let supaSuccess = Boolean(options?.skipSupabase);
+  if (!options?.skipSupabase) {
+    try {
+      supaSuccess = await upsertWilayahDataset(targetKode, 'hpbs', payload);
+    } catch (supaErr) {
+      console.warn('[Supabase API] savePublishedHpbsDataset error:', supaErr);
+    }
   }
 
   // 2. Server persistence fallback
